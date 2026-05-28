@@ -1,0 +1,29 @@
+# 环境变量
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# ChromaDB 持久化数据
+server/chroma_db/
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Android（client-android 有自己的 .gitignore）
+*.apk
+*.aab
+
+AGENTS.md
+.agents
+.codex
