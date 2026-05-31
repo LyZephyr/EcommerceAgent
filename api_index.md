@@ -74,6 +74,38 @@
 
 ---
 
+## 离线评估工具
+
+### eval/ground_truth.json
+
+200 条检索评估查询，每条包含 `id`、`query`、`query_type`、人工可审核的 `relevant_product_ids` 和标注说明 `notes`。
+
+### eval/run_retrieval_eval.py
+
+对 Ground Truth 中每条查询调用当前 `retrieve(query, top_k)`，计算召回质量指标。
+
+**命令**：
+
+```bash
+server/.venv/bin/python eval/run_retrieval_eval.py
+server/.venv/bin/python eval/run_retrieval_eval.py --top-k 10
+HF_HUB_OFFLINE=1 server/.venv/bin/python eval/run_retrieval_eval.py
+```
+
+**输出指标**：
+
+| 指标 | 说明 |
+|------|------|
+| `Recall@K` | Top-K 中命中的相关商品数 / Ground Truth 相关商品数 |
+| `MRR` | 第一个相关商品排名的倒数，未命中为 0 |
+| `Hit Rate@K` | Top-K 中是否至少命中 1 个相关商品 |
+| `Precision@K` | Top-K 中命中的相关商品数 / K |
+
+默认 K 读取 `server/config.py` 中的 `TOP_K`，也可通过 `--top-k` 覆盖。完整报告写入 `eval/reports/retrieval_eval_top{K}.json`，包含整体分数和逐 query 命中详情。
+如果当前环境禁止访问 Hugging Face，但 embedding 模型已经存在本地缓存，可使用 `HF_HUB_OFFLINE=1` 强制离线加载。
+
+---
+
 ## Android 客户端接口
 
 ### data/model/Message.kt

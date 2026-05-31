@@ -1,0 +1,2148 @@
+[
+  {
+    "id": "q001",
+    "query": "夏天想买件日常穿的清爽上衣",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_clothes_001",
+      "p_clothes_002",
+      "p_clothes_003",
+      "p_clothes_020",
+      "p_clothes_021"
+    ],
+    "notes": "夏季日常穿着→清爽透气短袖/速干上衣"
+  },
+  {
+    "id": "q002",
+    "query": "想买一条适合居家穿的宽松裤子",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_clothes_004",
+      "p_clothes_006"
+    ],
+    "notes": "生活场景，居家+宽松描述与运动裤文档语义偏差大，旧版零召回"
+  },
+  {
+    "id": "q003",
+    "query": "想买一支日常通勤用、颜色自然的唇釉",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_beauty_015"
+    ],
+    "notes": "日常自然妆效→滋润显色唇釉"
+  },
+  {
+    "id": "q004",
+    "query": "有没有涂了之后毛孔看不见的底妆产品",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_beauty_013",
+      "p_beauty_014",
+      "p_beauty_020"
+    ],
+    "notes": "效果描述间接，蜜粉/粉底品类词缺失，旧版零召回"
+  },
+  {
+    "id": "q005",
+    "query": "脸最近有点干，想买个晚上用的补水面膜",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_beauty_022"
+    ],
+    "notes": "夜间补水修护场景→保湿舒缓面膜"
+  },
+  {
+    "id": "q006",
+    "query": "打完球想喝点冰的，解渴又爽口",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_food_003",
+      "p_food_004",
+      "p_food_005",
+      "p_food_006",
+      "p_food_014",
+      "p_food_015",
+      "p_food_024",
+      "p_food_025"
+    ],
+    "notes": "运动后解渴爽口→无糖茶、气泡饮、功能饮料、维C饮料"
+  },
+  {
+    "id": "q007",
+    "query": "有没有适合皮肤过敏时用的温和面霜",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_beauty_007",
+      "p_beauty_012"
+    ],
+    "notes": "皮肤状况描述，需推理至敏感肌面霜，旧版零召回"
+  },
+  {
+    "id": "q008",
+    "query": "有没有刷酸后能镇定泛红皮肤的东西",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_beauty_004",
+      "p_beauty_007",
+      "p_beauty_012",
+      "p_beauty_022"
+    ],
+    "notes": "护肤流程场景+模糊品类，旧版零召回"
+  },
+  {
+    "id": "q009",
+    "query": "想买一款出汗后不会花的底妆",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_beauty_020"
+    ],
+    "notes": "底妆需求+出汗不花妆→持妆控油粉底液"
+  },
+  {
+    "id": "q010",
+    "query": "周末约了朋友去爬山穿什么裤子好",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_clothes_017"
+    ],
+    "notes": "户外场景→软壳裤，需推理"
+  },
+  {
+    "id": "q011",
+    "query": "熬夜赶稿子困了用什么提神",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_food_001",
+      "p_food_002",
+      "p_food_005",
+      "p_food_006",
+      "p_food_022",
+      "p_food_023"
+    ],
+    "notes": "场景不含品类关键词，需推理至咖啡/功能饮料"
+  },
+  {
+    "id": "q012",
+    "query": "过年回家想给爸妈带箱奶",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_food_007",
+      "p_food_008",
+      "p_food_016",
+      "p_food_017"
+    ],
+    "notes": "送礼场景，纯牛奶和酸奶都是常见送长辈选择"
+  },
+  {
+    "id": "q013",
+    "query": "换季脸上脱皮拔干用什么好",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_beauty_007",
+      "p_beauty_012",
+      "p_beauty_019",
+      "p_beauty_022"
+    ],
+    "notes": "皮肤症状描述→保湿修护类"
+  },
+  {
+    "id": "q014",
+    "query": "去健身房需要带什么包",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_clothes_018",
+      "p_clothes_025"
+    ],
+    "notes": "场景→背包，不直接提及品类"
+  },
+  {
+    "id": "q015",
+    "query": "出门逛街怕被晒怎么办",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_beauty_006",
+      "p_beauty_010",
+      "p_beauty_023",
+      "p_clothes_019",
+      "p_clothes_024"
+    ],
+    "notes": "跨品类场景，防晒+帽子"
+  },
+  {
+    "id": "q016",
+    "query": "坐火车时间长，想买个轻点的平板看剧",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_digital_011",
+      "p_digital_019",
+      "p_digital_025"
+    ],
+    "notes": "长途出行看剧→轻便学习娱乐平板"
+  },
+  {
+    "id": "q017",
+    "query": "家里做红烧菜，想买点适合调味和上色的酱油",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_food_013",
+      "p_food_018"
+    ],
+    "notes": "红烧菜调味与上色→生抽提鲜、老抽上色"
+  },
+  {
+    "id": "q018",
+    "query": "考研复习用什么设备记笔记好",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_digital_005",
+      "p_digital_011",
+      "p_digital_013",
+      "p_digital_019",
+      "p_digital_021",
+      "p_digital_024",
+      "p_digital_025"
+    ],
+    "notes": "学习场景→支持手写笔/触控笔记笔记的平板"
+  },
+  {
+    "id": "q019",
+    "query": "凌晨一个人饿了不想做饭也不想叫外卖",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_food_010",
+      "p_food_011",
+      "p_food_012",
+      "p_food_020",
+      "p_food_021"
+    ],
+    "notes": "深夜饥饿场景→方便食品/零食，不含品类关键词"
+  },
+  {
+    "id": "q020",
+    "query": "约了相亲想化个得体的淡妆",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_beauty_013",
+      "p_beauty_014",
+      "p_beauty_015",
+      "p_beauty_020",
+      "p_beauty_025"
+    ],
+    "notes": "社交场景→底妆+唇妆+眉笔，跨子品类"
+  },
+  {
+    "id": "q021",
+    "query": "通勤路上太吵，想买副降噪耳机",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_digital_007",
+      "p_digital_018"
+    ],
+    "notes": "通勤噪音场景→主动降噪真无线耳机"
+  },
+  {
+    "id": "q022",
+    "query": "春天跑步穿什么下装合适",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_clothes_004",
+      "p_clothes_006",
+      "p_clothes_016",
+      "p_clothes_023"
+    ],
+    "notes": "季节+运动→运动裤/短裤/瑜伽裤"
+  },
+  {
+    "id": "q023",
+    "query": "开了一天会手腕酸想买个能手写的设备",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_digital_005",
+      "p_digital_011",
+      "p_digital_013",
+      "p_digital_019",
+      "p_digital_021",
+      "p_digital_024",
+      "p_digital_025"
+    ],
+    "notes": "办公疲劳场景→支持手写笔/触控笔的平板"
+  },
+  {
+    "id": "q024",
+    "query": "去海边玩，想买防晒力强一点的面部防晒",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_beauty_006",
+      "p_beauty_010",
+      "p_beauty_023"
+    ],
+    "notes": "海边户外高强度日晒→高倍面部防晒"
+  },
+  {
+    "id": "q025",
+    "query": "一个人旅行一周，想买能装衣服和笔记本的背包",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_clothes_018"
+    ],
+    "notes": "旅行一周携带衣物和笔记本→大容量通勤户外双肩包"
+  },
+  {
+    "id": "q026",
+    "query": "跑完半马膝盖总不舒服穿什么鞋能好点",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_clothes_007",
+      "p_clothes_008",
+      "p_clothes_009"
+    ],
+    "notes": "运动伤病场景→缓震跑鞋"
+  },
+  {
+    "id": "q027",
+    "query": "妆化完一会儿就斑驳了能抢救一下吗",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_beauty_013",
+      "p_beauty_014"
+    ],
+    "notes": "脱妆问题→定妆蜜粉，不提定妆/蜜粉关键词"
+  },
+  {
+    "id": "q028",
+    "query": "想买一条柔软贴身、练瑜伽舒服的运动裤",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_clothes_016"
+    ],
+    "notes": "瑜伽训练贴身舒适需求→裸感高腰瑜伽裤"
+  },
+  {
+    "id": "q029",
+    "query": "今天头发没整理好，想买顶日常能戴的帽子",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_clothes_019",
+      "p_clothes_024"
+    ],
+    "notes": "日常遮挡发型/搭配→棒球帽或鸭舌帽"
+  },
+  {
+    "id": "q030",
+    "query": "眉毛比较淡，想买支画出来自然的眉笔",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_beauty_025"
+    ],
+    "notes": "眉毛稀淡/自然妆效→细头双头眉笔"
+  },
+  {
+    "id": "q031",
+    "query": "最近觉得法令纹变深了想用点什么",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_beauty_001",
+      "p_beauty_008",
+      "p_beauty_016",
+      "p_beauty_024"
+    ],
+    "notes": "具体皮肤问题→抗皱精华/面霜/全脸眼霜，不直接说精华"
+  },
+  {
+    "id": "q032",
+    "query": "户外攀爬和徒步想买条耐磨一点的长裤",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_clothes_017"
+    ],
+    "notes": "户外攀爬徒步耐磨需求→软壳户外长裤"
+  },
+  {
+    "id": "q033",
+    "query": "降温了出门想有个兜帽挡风的上衣",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_clothes_005",
+      "p_clothes_022"
+    ],
+    "notes": "避开卫衣/套头衫关键词，用兜帽描述"
+  },
+  {
+    "id": "q034",
+    "query": "有没有能折叠随身携带的手机推荐",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_digital_010",
+      "p_digital_014"
+    ],
+    "notes": "折叠屏属性，旧版零召回"
+  },
+  {
+    "id": "q035",
+    "query": "想买一副在手机和电脑之间切换方便的降噪耳机",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_digital_007",
+      "p_digital_018"
+    ],
+    "notes": "多设备切换+降噪需求→旗舰真无线耳机"
+  },
+  {
+    "id": "q036",
+    "query": "想买一款适合出差时带的小瓶装精华",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_beauty_001",
+      "p_beauty_002",
+      "p_beauty_004",
+      "p_beauty_005",
+      "p_beauty_009",
+      "p_beauty_018",
+      "p_beauty_024"
+    ],
+    "notes": "便携规格属性，覆盖30ml左右或旅行友好规格的精华"
+  },
+  {
+    "id": "q037",
+    "query": "100块以内有什么好用的面霜",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_beauty_007",
+      "p_beauty_008"
+    ],
+    "notes": "价格约束。薇诺娜¥89起(15g)，玉兰油¥89起(14g)"
+  },
+  {
+    "id": "q038",
+    "query": "三千出头能看剧记笔记的触屏设备",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_digital_011",
+      "p_digital_019"
+    ],
+    "notes": "价格+用途约束，避开平板关键词"
+  },
+  {
+    "id": "q039",
+    "query": "一万以内能买到什么苹果笔记本",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_digital_020"
+    ],
+    "notes": "品牌+价格双重约束。MacBook Air ¥8499起"
+  },
+  {
+    "id": "q040",
+    "query": "200以内的防晒推荐一个",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_beauty_006",
+      "p_beauty_010"
+    ],
+    "notes": "价格约束。欧莱雅¥170-190，安热沙¥118起"
+  },
+  {
+    "id": "q041",
+    "query": "预算不多但想买双能打实战的鞋",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_clothes_012"
+    ],
+    "notes": "模糊价格+用途约束，不直接说篮球鞋"
+  },
+  {
+    "id": "q042",
+    "query": "预算三千多，想换一台拍照好点的手机",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_digital_016"
+    ],
+    "notes": "低预算手机+人像拍摄→OPPO Reno 16 Pro"
+  },
+  {
+    "id": "q043",
+    "query": "500以内适合敏感肌用的面霜",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_beauty_007",
+      "p_beauty_012"
+    ],
+    "notes": "价格+肤质双重约束"
+  },
+  {
+    "id": "q044",
+    "query": "两万以内能剪视频的笔记本电脑",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_digital_004",
+      "p_digital_006",
+      "p_digital_020",
+      "p_digital_023"
+    ],
+    "notes": "价格+剪视频能力双重约束。MateBook 14、MacBook Pro 14、MacBook Air和ThinkBook 14+均在两万以内且文档提到视频剪辑；MacBook Pro 16最低¥21999不符合价格约束"
+  },
+  {
+    "id": "q045",
+    "query": "预算三万想买台专业剪4K的电脑",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_digital_012"
+    ],
+    "notes": "高预算+专业性能。MacBook Pro 16 M5 Pro ¥21999起"
+  },
+  {
+    "id": "q046",
+    "query": "优衣库有没有能穿去跑步的速干衣",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_clothes_002",
+      "p_clothes_023"
+    ],
+    "notes": "品牌+跑步速干需求→优衣库速干上衣/短裤"
+  },
+  {
+    "id": "q047",
+    "query": "苹果的平板都有什么",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_digital_013",
+      "p_digital_024",
+      "p_digital_025"
+    ],
+    "notes": "品牌过滤"
+  },
+  {
+    "id": "q048",
+    "query": "想买国产影像旗舰，夜景和长焦都强一点",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_digital_002",
+      "p_digital_008",
+      "p_digital_015",
+      "p_digital_017"
+    ],
+    "notes": "国产影像旗舰→华为/小米/OPPO/vivo影像旗舰手机"
+  },
+  {
+    "id": "q049",
+    "query": "想买三顿半的精品速溶咖啡，有哪些选择",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_food_001",
+      "p_food_022"
+    ],
+    "notes": "品牌+精品速溶咖啡→三顿半数字星球/冷萃即溶"
+  },
+  {
+    "id": "q050",
+    "query": "雀巢咖啡有哪些适合日常囤的",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_food_002",
+      "p_food_023"
+    ],
+    "notes": "品牌+日常囤货→雀巢三合一/金牌黑咖啡"
+  },
+  {
+    "id": "q051",
+    "query": "国产的打球穿的鞋有什么",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_clothes_012",
+      "p_clothes_013"
+    ],
+    "notes": "用国产替代具体品牌名，需推理出李宁/安踏"
+  },
+  {
+    "id": "q052",
+    "query": "OPPO有什么手机型号",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_digital_014",
+      "p_digital_015",
+      "p_digital_016"
+    ],
+    "notes": "品牌过滤"
+  },
+  {
+    "id": "q053",
+    "query": "带灵动岛的最新旗舰机有哪些",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_digital_001",
+      "p_digital_003"
+    ],
+    "notes": "用灵动岛特征替代苹果品牌名"
+  },
+  {
+    "id": "q054",
+    "query": "三叶草的卫衣有没有",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_clothes_022"
+    ],
+    "notes": "品牌子线过滤，adidas Originals三叶草"
+  },
+  {
+    "id": "q055",
+    "query": "迈乐的登山鞋有吗",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_clothes_015"
+    ],
+    "notes": "品牌过滤"
+  },
+  {
+    "id": "q056",
+    "query": "下雨天走野路不进水的鞋",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_clothes_014",
+      "p_clothes_015"
+    ],
+    "notes": "防水需求间接描述，不含GORE-TEX/GTX/防水关键词"
+  },
+  {
+    "id": "q057",
+    "query": "哪款手机有潜望长焦镜头",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_digital_008",
+      "p_digital_017"
+    ],
+    "notes": "硬件配置属性过滤"
+  },
+  {
+    "id": "q058",
+    "query": "马拉松想破三穿什么鞋好",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_clothes_010"
+    ],
+    "notes": "竞技跑者术语破三→碳板竞速鞋"
+  },
+  {
+    "id": "q059",
+    "query": "脚宽买什么篮球鞋不挤脚",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_clothes_011"
+    ],
+    "notes": "间接描述宽楦需求"
+  },
+  {
+    "id": "q060",
+    "query": "跑步时候想知道心跳多少但不想戴手表",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_digital_018"
+    ],
+    "notes": "心率监测需求的间接描述→AirPods Pro 3心率版"
+  },
+  {
+    "id": "q061",
+    "query": "有没有含烟酰胺的护肤品",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_beauty_008",
+      "p_beauty_018"
+    ],
+    "notes": "成分属性过滤"
+  },
+  {
+    "id": "q062",
+    "query": "SPF50以上的防晒产品",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_beauty_006",
+      "p_beauty_010",
+      "p_beauty_023"
+    ],
+    "notes": "防晒指数参数过滤"
+  },
+  {
+    "id": "q063",
+    "query": "有没有0糖0卡的饮料",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_food_003",
+      "p_food_004",
+      "p_food_014",
+      "p_food_015",
+      "p_food_024"
+    ],
+    "notes": "成分属性过滤"
+  },
+  {
+    "id": "q064",
+    "query": "12英寸以上的大屏平板",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_digital_005",
+      "p_digital_011",
+      "p_digital_013",
+      "p_digital_019",
+      "p_digital_021",
+      "p_digital_024"
+    ],
+    "notes": "尺寸属性过滤"
+  },
+  {
+    "id": "q065",
+    "query": "1.5kg以下的轻薄笔记本",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_digital_004",
+      "p_digital_020",
+      "p_digital_022",
+      "p_digital_023"
+    ],
+    "notes": "重量属性过滤。MateBook 14约1.49kg，Air 1.24kg，X1 Carbon 1.1kg，ThinkBook 1.4kg"
+  },
+  {
+    "id": "q066",
+    "query": "想买独立小包装的每日坚果，办公室每天吃一袋",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_food_009",
+      "p_food_019"
+    ],
+    "notes": "独立小包装每日坚果→三只松鼠/百草味混合坚果"
+  },
+  {
+    "id": "q067",
+    "query": "有没有大容量的保湿水",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_beauty_003",
+      "p_beauty_019"
+    ],
+    "notes": "容量属性。SK-II 230ml，兰蔻大粉水400ml"
+  },
+  {
+    "id": "q068",
+    "query": "有没有眼周和脸上都能用的护理霜",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_beauty_016"
+    ],
+    "notes": "眼周+全脸护理→AHC全脸眼霜"
+  },
+  {
+    "id": "q069",
+    "query": "想买屏幕大一点、适合看视频的手机",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_digital_003",
+      "p_digital_009",
+      "p_digital_010",
+      "p_digital_014"
+    ],
+    "notes": "大屏影音手机→Pro Max/Max大屏直板机和折叠大屏手机"
+  },
+  {
+    "id": "q070",
+    "query": "推荐一款涂了不搓泥的精华液",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_beauty_005",
+      "p_beauty_024"
+    ],
+    "notes": "负向体验描述。科颜氏淡斑精华与珀莱雅赋能鲜颜精华文档明确提到不易搓泥/不搓泥"
+  },
+  {
+    "id": "q071",
+    "query": "推荐一双能穿去公司不会太运动风的鞋",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_clothes_007",
+      "p_clothes_008"
+    ],
+    "notes": "负向风格约束，旧版零召回"
+  },
+  {
+    "id": "q072",
+    "query": "只想买纯黑咖啡，不要奶精和糖",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_food_001",
+      "p_food_022",
+      "p_food_023"
+    ],
+    "notes": "黑咖啡需求+排除奶精和糖→精品即溶/冻干黑咖啡"
+  },
+  {
+    "id": "q073",
+    "query": "想买洗完不紧绷、肤感自然的洁面",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_beauty_011"
+    ],
+    "notes": "温和清洁与洗后不紧绷→绵润泡沫洁面"
+  },
+  {
+    "id": "q074",
+    "query": "有没有用了不闷痘的防晒",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_beauty_006",
+      "p_beauty_010",
+      "p_beauty_023"
+    ],
+    "notes": "负向肤感约束→轻薄清爽型防晒。安热沙评论明确提到清爽不闷痘"
+  },
+  {
+    "id": "q075",
+    "query": "怕脸上过敏用什么温和的把妆卸了",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_beauty_017"
+    ],
+    "notes": "敏感肌+卸妆需求间接描述，不直接说卸妆油/卸妆产品"
+  },
+  {
+    "id": "q076",
+    "query": "推荐一款跑步不会前掌打滑的鞋",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_clothes_007",
+      "p_clothes_008",
+      "p_clothes_009",
+      "p_clothes_010"
+    ],
+    "notes": "负向性能约束"
+  },
+  {
+    "id": "q077",
+    "query": "想买非国产品牌的精华，有哪些可以选",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_beauty_001",
+      "p_beauty_002",
+      "p_beauty_004",
+      "p_beauty_005",
+      "p_beauty_018"
+    ],
+    "notes": "品牌负向约束→非国产品牌精华"
+  },
+  {
+    "id": "q078",
+    "query": "不想喝气泡饮料，有没有不带气的茶饮或功能饮料",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_food_003",
+      "p_food_005",
+      "p_food_006",
+      "p_food_014",
+      "p_food_025"
+    ],
+    "notes": "饮品需求+排除碳酸气泡→茶饮/功能饮料/维C饮料"
+  },
+  {
+    "id": "q079",
+    "query": "不要太贵的抗老精华推荐",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_beauty_009",
+      "p_beauty_024"
+    ],
+    "notes": "价格隐含排除，保留平价且明确主打淡纹/抗初老的精华"
+  },
+  {
+    "id": "q080",
+    "query": "嘴唇容易干，想买显色但不拔干的唇釉",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_beauty_015"
+    ],
+    "notes": "唇部干燥+显色需求→滋润显色唇釉"
+  },
+  {
+    "id": "q081",
+    "query": "嘴里没味了想啃点坚果或糕点，但不想吃泡面",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_food_009",
+      "p_food_010",
+      "p_food_019"
+    ],
+    "notes": "品类排除方便面→肉松饼、每日坚果等非面类零食"
+  },
+  {
+    "id": "q082",
+    "query": "想买一件耐穿、不容易起球的基础卫衣",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_clothes_005",
+      "p_clothes_022"
+    ],
+    "notes": "耐穿抗起球基础上衣→基础logo卫衣"
+  },
+  {
+    "id": "q083",
+    "query": "不想买苹果的轻薄笔记本有什么",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_digital_004",
+      "p_digital_022",
+      "p_digital_023"
+    ],
+    "notes": "品牌排除Apple→华为/联想轻薄本"
+  },
+  {
+    "id": "q084",
+    "query": "装个电脑和水杯就够了不用太大的书包",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_clothes_025"
+    ],
+    "notes": "容量描述+尺寸排除→Osprey 20L"
+  },
+  {
+    "id": "q085",
+    "query": "面膜不想要贴片式的有什么选择",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_beauty_022"
+    ],
+    "notes": "产品形态排除→涂抹式面膜"
+  },
+  {
+    "id": "q086",
+    "query": "不要折叠屏的旗舰手机",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_digital_001",
+      "p_digital_002",
+      "p_digital_003",
+      "p_digital_008",
+      "p_digital_009",
+      "p_digital_015",
+      "p_digital_017"
+    ],
+    "notes": "产品形态排除折叠屏+定位过滤非旗舰"
+  },
+  {
+    "id": "q087",
+    "query": "晚上躺床上看小说，想买个轻便点的平板",
+    "query_type": "ambiguous",
+    "relevant_product_ids": [
+      "p_digital_011",
+      "p_digital_019",
+      "p_digital_025"
+    ],
+    "notes": "睡前阅读场景→轻便学习娱乐平板"
+  },
+  {
+    "id": "q088",
+    "query": "想买件便宜点的T恤，日常通勤穿就行",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_clothes_001",
+      "p_clothes_020"
+    ],
+    "notes": "低价日常T恤→基础T恤/迪卡侬速干T恤"
+  },
+  {
+    "id": "q089",
+    "query": "肤色看着有点暗，想买提亮类护肤品",
+    "query_type": "ambiguous",
+    "relevant_product_ids": [
+      "p_beauty_002",
+      "p_beauty_003",
+      "p_beauty_005",
+      "p_beauty_008",
+      "p_beauty_009",
+      "p_beauty_018"
+    ],
+    "notes": "暗沉提亮需求→肌底液、化妆水、面霜和提亮类精华"
+  },
+  {
+    "id": "q090",
+    "query": "想买一台能随时带着移动办公的轻薄笔记本",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_digital_004",
+      "p_digital_006",
+      "p_digital_020",
+      "p_digital_022",
+      "p_digital_023"
+    ],
+    "notes": "移动办公场景→轻薄便携笔记本，MacBook Pro 14也适合移动办公"
+  },
+  {
+    "id": "q091",
+    "query": "换季皮肤不稳定，想买修护维稳的护肤品",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_beauty_002",
+      "p_beauty_004",
+      "p_beauty_007",
+      "p_beauty_012",
+      "p_beauty_022"
+    ],
+    "notes": "换季不稳定→肌底修护维稳精华、敏感肌屏障修护面霜和舒缓面膜"
+  },
+  {
+    "id": "q092",
+    "query": "送女朋友生日礼物，想买适合送礼的明星护肤和彩妆",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_beauty_001",
+      "p_beauty_002",
+      "p_beauty_003",
+      "p_beauty_015"
+    ],
+    "notes": "送礼场景限定美妆护肤→明星护肤品和日常唇妆"
+  },
+  {
+    "id": "q093",
+    "query": "明天出差两天，想买能装电脑和随身衣物的背包",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_clothes_018",
+      "p_clothes_025"
+    ],
+    "notes": "短途出差携带电脑和衣物→通勤户外双肩包"
+  },
+  {
+    "id": "q094",
+    "query": "无聊想买点坚果或小点心打发时间",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_food_009",
+      "p_food_010",
+      "p_food_019"
+    ],
+    "notes": "休闲解馋场景→每日坚果和糕点零食"
+  },
+  {
+    "id": "q095",
+    "query": "运动完脸上出汗多，想买个温和洁面",
+    "query_type": "ambiguous",
+    "relevant_product_ids": [
+      "p_beauty_011"
+    ],
+    "notes": "运动后汗油清洁→温和洁面"
+  },
+  {
+    "id": "q096",
+    "query": "家里的酱油类调料快用完了帮我看看",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_food_013",
+      "p_food_018"
+    ],
+    "notes": "酱油类调味品补货→生抽/老抽"
+  },
+  {
+    "id": "q097",
+    "query": "想给家里换个大屏平板看电影",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_digital_005",
+      "p_digital_011",
+      "p_digital_013",
+      "p_digital_019",
+      "p_digital_021",
+      "p_digital_024"
+    ],
+    "notes": "影音用途明确到大屏平板"
+  },
+  {
+    "id": "q098",
+    "query": "下周开始跑步，想买基础跑步上衣、下装和跑鞋",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_clothes_002",
+      "p_clothes_003",
+      "p_clothes_004",
+      "p_clothes_006",
+      "p_clothes_007",
+      "p_clothes_008",
+      "p_clothes_009",
+      "p_clothes_020",
+      "p_clothes_021",
+      "p_clothes_023"
+    ],
+    "notes": "跑步装备涉及速干衣、运动长裤/短裤和跑鞋"
+  },
+  {
+    "id": "q099",
+    "query": "皮肤暗沉发黄用什么改善",
+    "query_type": "ambiguous",
+    "relevant_product_ids": [
+      "p_beauty_002",
+      "p_beauty_005",
+      "p_beauty_009",
+      "p_beauty_018"
+    ],
+    "notes": "皮肤症状描述→提亮精华"
+  },
+  {
+    "id": "q100",
+    "query": "过节送长辈，想买牛奶或每日坚果礼盒",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_food_007",
+      "p_food_009",
+      "p_food_016",
+      "p_food_019"
+    ],
+    "notes": "送长辈礼盒场景→常温牛奶/每日坚果礼盒"
+  },
+  {
+    "id": "q101",
+    "query": "护肤新手想先买温和洁面和保湿面霜",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_beauty_007",
+      "p_beauty_011",
+      "p_beauty_012"
+    ],
+    "notes": "护肤新手基础组合→温和洁面+保湿修护面霜"
+  },
+  {
+    "id": "q102",
+    "query": "早上起来眼睛周围皱巴巴的想改善",
+    "query_type": "ambiguous",
+    "relevant_product_ids": [
+      "p_beauty_016",
+      "p_beauty_021"
+    ],
+    "notes": "间接描述眼周老化→眼霜"
+  },
+  {
+    "id": "q103",
+    "query": "听说小米出了新手机想看看有哪些",
+    "query_type": "ambiguous",
+    "relevant_product_ids": [
+      "p_digital_008",
+      "p_digital_009",
+      "p_digital_010"
+    ],
+    "notes": "品牌+模糊浏览需求"
+  },
+  {
+    "id": "q104",
+    "query": "视频会议一整天，电脑太沉了想换个轻一点的",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_digital_004",
+      "p_digital_020",
+      "p_digital_022",
+      "p_digital_023"
+    ],
+    "notes": "长时间会议与便携办公→轻薄办公本，避开具体型号"
+  },
+  {
+    "id": "q105",
+    "query": "夏天晚上跑步衣服总是湿在身上，有没有干得快点的",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_clothes_002",
+      "p_clothes_003",
+      "p_clothes_020",
+      "p_clothes_021"
+    ],
+    "notes": "跑步出汗后的速干诉求→运动速干上衣"
+  },
+  {
+    "id": "q106",
+    "query": "出去玩想带顶遮太阳的帽子，最好别太闷",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_clothes_019",
+      "p_clothes_024"
+    ],
+    "notes": "户外遮阳与透气佩戴→可调节棒球帽/户外鸭舌帽"
+  },
+  {
+    "id": "q107",
+    "query": "每天背电脑挤地铁肩膀疼，想换个轻点的包",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_clothes_025"
+    ],
+    "notes": "通勤背电脑且强调轻量→20L轻量双肩包"
+  },
+  {
+    "id": "q108",
+    "query": "平时画画改图，想买个能用笔的大屏设备",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_digital_005",
+      "p_digital_013",
+      "p_digital_021",
+      "p_digital_024"
+    ],
+    "notes": "创作与手写笔大屏需求→高性能大屏平板"
+  },
+  {
+    "id": "q109",
+    "query": "通勤路上太吵，想听歌的时候安静一点",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_digital_007",
+      "p_digital_018"
+    ],
+    "notes": "通勤降噪听歌→主动降噪真无线耳机"
+  },
+  {
+    "id": "q110",
+    "query": "脸颊一到换季就又红又干，想先稳一稳",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_beauty_002",
+      "p_beauty_004",
+      "p_beauty_007",
+      "p_beauty_012",
+      "p_beauty_022"
+    ],
+    "notes": "换季泛红干燥→肌底修护维稳、屏障修护、补水面膜"
+  },
+  {
+    "id": "q111",
+    "query": "午饭吃得有点腻，下午想喝点清爽的",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_food_003",
+      "p_food_004",
+      "p_food_014",
+      "p_food_015",
+      "p_food_024",
+      "p_food_025"
+    ],
+    "notes": "饭后解腻清爽饮用→无糖茶、果味气泡水、无糖汽水、柠檬饮料"
+  },
+  {
+    "id": "q112",
+    "query": "晚上加班回家太晚，想囤点热水一冲就能吃的",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_food_011",
+      "p_food_012",
+      "p_food_020",
+      "p_food_021"
+    ],
+    "notes": "夜间加班速食需求→方便面/杯面类商品"
+  },
+  {
+    "id": "q113",
+    "query": "早上赶时间，想买点能配面包一起吃的",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_food_007",
+      "p_food_008",
+      "p_food_010",
+      "p_food_016",
+      "p_food_017"
+    ],
+    "notes": "快捷早餐搭配→常温奶、酸奶、糕点"
+  },
+  {
+    "id": "q114",
+    "query": "周末打全场，想要脚下稳一点别崴脚",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_clothes_011",
+      "p_clothes_012",
+      "p_clothes_013"
+    ],
+    "notes": "篮球实战稳定支撑需求→中高强度实战篮球鞋"
+  },
+  {
+    "id": "q115",
+    "query": "经常去客户那边演示，电脑最好接口多一点",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_digital_023"
+    ],
+    "notes": "外出演示与接口丰富→ThinkBook 14+ 明确有全尺寸接口"
+  },
+  {
+    "id": "q116",
+    "query": "下雨天徒步，脚一湿就难受，想换双靠谱的",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_clothes_014",
+      "p_clothes_015"
+    ],
+    "notes": "雨天徒步防水抓地→GORE-TEX徒步鞋"
+  },
+  {
+    "id": "q117",
+    "query": "做方案时一边看资料一边写东西，屏幕小了不方便",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_digital_005",
+      "p_digital_013",
+      "p_digital_021",
+      "p_digital_024"
+    ],
+    "notes": "多窗口资料处理→大屏平板/轻办公创作平板"
+  },
+  {
+    "id": "q118",
+    "query": "夏天带妆下午脸上出油，想补一下别显毛孔",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_beauty_013",
+      "p_beauty_014"
+    ],
+    "notes": "夏季补妆控油柔焦→蜜粉饼/散粉"
+  },
+  {
+    "id": "q119",
+    "query": "办公室想囤一箱茶饮、气泡水和功能饮料，大家都能随手拿",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_food_003",
+      "p_food_004",
+      "p_food_005",
+      "p_food_006",
+      "p_food_014",
+      "p_food_015",
+      "p_food_024",
+      "p_food_025"
+    ],
+    "notes": "办公室整箱饮品泛需求→茶饮、气泡水、功能饮料、维C饮料"
+  },
+  {
+    "id": "q120",
+    "query": "包里钥匙水杯电脑老混在一起，想换个分区清楚的",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_clothes_018",
+      "p_clothes_025"
+    ],
+    "notes": "收纳分区与电脑水杯携带→多功能双肩背包"
+  },
+  {
+    "id": "q121",
+    "query": "晚上拍人拍景总是糊，想换个拍照稳一点的手机",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_digital_001",
+      "p_digital_002",
+      "p_digital_003",
+      "p_digital_008",
+      "p_digital_015",
+      "p_digital_016",
+      "p_digital_017"
+    ],
+    "notes": "夜景影像诉求→影像旗舰或拍摄能力强的人像手机"
+  },
+  {
+    "id": "q122",
+    "query": "脸上有痘印，肤色看着不太匀，想慢慢改善",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_beauty_005",
+      "p_beauty_009",
+      "p_beauty_018"
+    ],
+    "notes": "痘印与肤色不均→淡斑提亮、烟酰胺、双抗提亮精华"
+  },
+  {
+    "id": "q123",
+    "query": "跑久一点脚底容易累，想买双缓震舒服的",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_clothes_007",
+      "p_clothes_008",
+      "p_clothes_009"
+    ],
+    "notes": "长距离慢跑缓震需求→日常训练跑鞋"
+  },
+  {
+    "id": "q124",
+    "query": "开会时想直接在文件上写批注，最好还能带着走",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_digital_005",
+      "p_digital_011",
+      "p_digital_013",
+      "p_digital_019",
+      "p_digital_021",
+      "p_digital_024",
+      "p_digital_025"
+    ],
+    "notes": "会议批注与便携→支持触控笔/手写的平板"
+  },
+  {
+    "id": "q125",
+    "query": "周末露营想带点不占地方的咖啡",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_food_001",
+      "p_food_022"
+    ],
+    "notes": "露营便携咖啡→小颗粒/小杯装即溶咖啡"
+  },
+  {
+    "id": "q126",
+    "query": "懒得拆调料包，想要倒热水就能吃的杯面",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_food_020"
+    ],
+    "notes": "明确不想拆调料包→合味道预封粉料杯面"
+  },
+  {
+    "id": "q127",
+    "query": "外勤一天，手机要亮屏看得清，电量也别掉太快",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_digital_003",
+      "p_digital_009",
+      "p_digital_015",
+      "p_digital_017"
+    ],
+    "notes": "户外外勤亮屏与续航→大屏长续航旗舰手机"
+  },
+  {
+    "id": "q128",
+    "query": "嘴唇想有点颜色，但不想干得起皮",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_beauty_015"
+    ],
+    "notes": "唇部显色与滋润持妆→滋润型唇釉"
+  },
+  {
+    "id": "q129",
+    "query": "健身房练腿穿长裤太热，想买条不闷的短裤",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_clothes_023"
+    ],
+    "notes": "健身训练与夏季透气→速干运动短裤"
+  },
+  {
+    "id": "q130",
+    "query": "家里人多，厨房常用的调味料想买大瓶一点",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_food_013",
+      "p_food_018"
+    ],
+    "notes": "家庭厨房大容量调味→生抽/老抽大瓶装"
+  },
+  {
+    "id": "q131",
+    "query": "预算200以内，想买通勤用的清爽防晒",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_beauty_006",
+      "p_beauty_010"
+    ],
+    "notes": "价格上限+通勤清爽防晒→欧莱雅防晒和安热沙20ml便携装"
+  },
+  {
+    "id": "q132",
+    "query": "要500ml左右瓶装、喝起来不甜的茶",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_food_003",
+      "p_food_014"
+    ],
+    "notes": "容量与无甜感属性→500ml无糖茶饮"
+  },
+  {
+    "id": "q133",
+    "query": "想要12GB内存、512GB存储的平板",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_digital_005",
+      "p_digital_011",
+      "p_digital_019",
+      "p_digital_021"
+    ],
+    "notes": "明确内存和存储规格→含12GB+512GB SKU的平板"
+  },
+  {
+    "id": "q134",
+    "query": "14英寸左右、1.5kg以下的办公电脑",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_digital_004",
+      "p_digital_022",
+      "p_digital_023"
+    ],
+    "notes": "尺寸与重量约束→14英寸轻薄办公本"
+  },
+  {
+    "id": "q135",
+    "query": "500元以内的控油定妆产品有什么",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_beauty_013",
+      "p_beauty_014"
+    ],
+    "notes": "价格上限+控油定妆→蜜粉饼/散粉"
+  },
+  {
+    "id": "q136",
+    "query": "想买黑色男款，跑步穿的上衣",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_clothes_002",
+      "p_clothes_003",
+      "p_clothes_020",
+      "p_clothes_021"
+    ],
+    "notes": "颜色、性别、运动场景组合→黑色男款速干/训练上衣"
+  },
+  {
+    "id": "q137",
+    "query": "想要330ml罐装的无糖汽水",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_food_015"
+    ],
+    "notes": "容量包装与无糖属性→零度罐装汽水"
+  },
+  {
+    "id": "q138",
+    "query": "需要250ml一盒、适合整箱囤的纯奶",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_food_007",
+      "p_food_016"
+    ],
+    "notes": "单盒容量和整箱纯牛奶要求→金典/特仑苏"
+  },
+  {
+    "id": "q139",
+    "query": "一千块左右的实战篮球鞋，有哪些能打比赛",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_clothes_012",
+      "p_clothes_013"
+    ],
+    "notes": "预算区间+实战比赛→安踏KT9、李宁全城12"
+  },
+  {
+    "id": "q140",
+    "query": "30ml左右、主打淡纹紧致的精华",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_beauty_001",
+      "p_beauty_009",
+      "p_beauty_024"
+    ],
+    "notes": "容量与功效属性→30ml左右淡纹紧致/抗初老精华"
+  },
+  {
+    "id": "q141",
+    "query": "想要1TB存储，能处理创作素材的笔记本",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_digital_004",
+      "p_digital_006",
+      "p_digital_012",
+      "p_digital_020",
+      "p_digital_023"
+    ],
+    "notes": "存储规格+创作场景→含1TB SKU且支持修图/剪辑/生产力的笔记本"
+  },
+  {
+    "id": "q142",
+    "query": "想要20L左右、能放15.6寸电脑的包",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_clothes_025"
+    ],
+    "notes": "容量与电脑隔层尺寸→Osprey 20L背包"
+  },
+  {
+    "id": "q143",
+    "query": "M码灰色的男士卫衣有吗",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_clothes_005"
+    ],
+    "notes": "尺码、颜色、品类明确→李宁M码灰色卫衣"
+  },
+  {
+    "id": "q144",
+    "query": "50g左右、秋冬用滋润一点的面霜",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_beauty_007",
+      "p_beauty_008",
+      "p_beauty_012"
+    ],
+    "notes": "容量与滋润保湿属性→舒敏/抗初老/修复面霜"
+  },
+  {
+    "id": "q145",
+    "query": "500ml整箱的功能饮料推荐一下",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_food_005"
+    ],
+    "notes": "容量与整箱功能饮料→东鹏500ml整箱"
+  },
+  {
+    "id": "q146",
+    "query": "13英寸左右、256GB起步的苹果平板",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_digital_013",
+      "p_digital_024"
+    ],
+    "notes": "品牌、尺寸、存储组合→13英寸苹果平板"
+  },
+  {
+    "id": "q147",
+    "query": "男款40码、防水的徒步鞋有哪些",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_clothes_014",
+      "p_clothes_015"
+    ],
+    "notes": "性别、尺码、防水、场景组合→GORE-TEX徒步鞋"
+  },
+  {
+    "id": "q148",
+    "query": "想要100g瓶装的纯黑咖啡",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_food_023"
+    ],
+    "notes": "容量包装和纯黑咖啡→雀巢金牌冻干"
+  },
+  {
+    "id": "q149",
+    "query": "6.9英寸大屏、适合看视频的手机",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_digital_003"
+    ],
+    "notes": "屏幕尺寸与影音场景→iPhone Pro Max大屏机"
+  },
+  {
+    "id": "q150",
+    "query": "25英寸高腰瑜伽裤有吗",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_clothes_016"
+    ],
+    "notes": "裤长和高腰属性→Lululemon Align 25英寸瑜伽裤"
+  },
+  {
+    "id": "q151",
+    "query": "60ml左右、防水防汗的户外防晒",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_beauty_010"
+    ],
+    "notes": "规格、防水防汗、户外防晒→安热沙60ml防晒乳"
+  },
+  {
+    "id": "q152",
+    "query": "24罐整箱、不要含糖的可乐",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_food_015"
+    ],
+    "notes": "包装数量+负向糖分约束→零度可乐24罐"
+  },
+  {
+    "id": "q153",
+    "query": "预算一万内的折叠大屏手机",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_digital_010",
+      "p_digital_014"
+    ],
+    "notes": "价格上限+折叠大屏→基础SKU在一万内或约一万的折叠屏"
+  },
+  {
+    "id": "q154",
+    "query": "12瓶或24瓶装的白葡萄味气泡饮",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_food_024"
+    ],
+    "notes": "口味与箱规属性→白葡萄味气泡水"
+  },
+  {
+    "id": "q155",
+    "query": "男款39到41码的碳板竞速鞋",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_clothes_010"
+    ],
+    "notes": "性别、尺码范围、碳板竞速→特步160X"
+  },
+  {
+    "id": "q156",
+    "query": "400ml左右，干皮用的保湿水",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_beauty_019"
+    ],
+    "notes": "容量与肤质功效→兰蔻大粉水400ml"
+  },
+  {
+    "id": "q157",
+    "query": "16GB内存、512GB硬盘的轻薄电脑",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_digital_004",
+      "p_digital_006",
+      "p_digital_020",
+      "p_digital_022",
+      "p_digital_023"
+    ],
+    "notes": "内存硬盘规格与轻薄电脑→对应SKU笔记本"
+  },
+  {
+    "id": "q158",
+    "query": "0.08g的双头眉笔，颜色自然一点",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_beauty_025"
+    ],
+    "notes": "规格、双头、自然妆效→花西子眉笔"
+  },
+  {
+    "id": "q159",
+    "query": "想喝咖啡，但不要三合一那种甜奶味",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_food_001",
+      "p_food_022",
+      "p_food_023"
+    ],
+    "notes": "咖啡正向需求+排除三合一甜奶味→纯黑/精品即溶咖啡"
+  },
+  {
+    "id": "q160",
+    "query": "想要防晒，但不要泛白厚重的",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_beauty_006",
+      "p_beauty_010",
+      "p_beauty_023"
+    ],
+    "notes": "防晒正向需求+排除厚重泛白→轻薄清爽防晒"
+  },
+  {
+    "id": "q161",
+    "query": "跑步鞋不要竞速碳板，日常慢跑舒服就行",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_clothes_007",
+      "p_clothes_008",
+      "p_clothes_009"
+    ],
+    "notes": "排除碳板竞速→日常缓震慢跑训练鞋"
+  },
+  {
+    "id": "q162",
+    "query": "想买平板，不要太小的11寸，分屏看资料舒服点",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_digital_005",
+      "p_digital_011",
+      "p_digital_013",
+      "p_digital_019",
+      "p_digital_021",
+      "p_digital_024"
+    ],
+    "notes": "平板正向需求+排除11寸小屏→12英寸以上大屏平板"
+  },
+  {
+    "id": "q163",
+    "query": "下午犯困想提神，不想喝含糖饮料",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_food_001",
+      "p_food_003",
+      "p_food_014",
+      "p_food_015",
+      "p_food_022",
+      "p_food_023"
+    ],
+    "notes": "提神饮用+排除含糖→无糖茶、黑咖啡、零度可乐"
+  },
+  {
+    "id": "q164",
+    "query": "出汗多想买上衣，不要纯棉那种贴身很难干的",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_clothes_002",
+      "p_clothes_003",
+      "p_clothes_020",
+      "p_clothes_021"
+    ],
+    "notes": "运动上衣+排除纯棉难干→速干训练T恤"
+  },
+  {
+    "id": "q165",
+    "query": "想买手机，不要曲面屏和折叠屏，日常用稳定点",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_digital_001",
+      "p_digital_003",
+      "p_digital_009",
+      "p_digital_016",
+      "p_digital_017"
+    ],
+    "notes": "手机需求+排除曲面屏/折叠屏→直板非曲面常规机型"
+  },
+  {
+    "id": "q166",
+    "query": "敏感肌想保湿，不要香精酒精刺激那种",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_beauty_007",
+      "p_beauty_012",
+      "p_beauty_022"
+    ],
+    "notes": "敏感肌保湿+排除刺激成分→舒缓修护类面霜/面膜"
+  },
+  {
+    "id": "q167",
+    "query": "办公室想放点零食，不要泡面那种味道太重的",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_food_009",
+      "p_food_010",
+      "p_food_019"
+    ],
+    "notes": "办公室零食+排除泡面气味→坚果/糕点"
+  },
+  {
+    "id": "q168",
+    "query": "通勤包要能放电脑，但不要太大像登山包",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_clothes_025"
+    ],
+    "notes": "电脑通勤包+排除大容量登山感→20L轻量通勤包"
+  },
+  {
+    "id": "q169",
+    "query": "想喝茶饮，不要甜味剂和香精",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_food_003",
+      "p_food_014"
+    ],
+    "notes": "茶饮需求+排除甜味剂香精→纯茶无糖茶饮"
+  },
+  {
+    "id": "q170",
+    "query": "眼周干纹想改善，不要太油糊眼睛的",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_beauty_016"
+    ],
+    "notes": "眼周干纹+排除厚重油腻→质地相对多效轻润的眼周护理"
+  },
+  {
+    "id": "q171",
+    "query": "买笔记本不要太重，也不要只能轻办公",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_digital_004",
+      "p_digital_006",
+      "p_digital_020",
+      "p_digital_023"
+    ],
+    "notes": "笔记本需求+排除太重和低性能→轻薄且能处理修图/轻剪辑的机型"
+  },
+  {
+    "id": "q172",
+    "query": "要一双户外鞋，别是城市跑步那种鞋底",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_clothes_014",
+      "p_clothes_015"
+    ],
+    "notes": "户外鞋需求+排除城市跑鞋→徒步登山鞋"
+  },
+  {
+    "id": "q173",
+    "query": "油皮夏天想用面霜，不要厚重闷痘",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_beauty_008",
+      "p_beauty_012"
+    ],
+    "notes": "油皮夏季面霜+排除厚重闷痘→日霜/清爽型面霜"
+  },
+  {
+    "id": "q174",
+    "query": "想要耳机降噪，不想买入门款凑合用",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_digital_007",
+      "p_digital_018"
+    ],
+    "notes": "降噪耳机+排除入门款→旗舰主动降噪耳机"
+  },
+  {
+    "id": "q175",
+    "query": "做饭蘸着吃，不要主要拿来上色的",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_food_013"
+    ],
+    "notes": "佐餐蘸料+排除上色老抽→生抽"
+  },
+  {
+    "id": "q176",
+    "query": "想囤酸奶，不想买必须放冰箱的",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_food_008",
+      "p_food_017"
+    ],
+    "notes": "酸奶囤货+排除冷藏依赖→常温酸奶"
+  },
+  {
+    "id": "q177",
+    "query": "想穿卫衣，但不要太花哨的大图案",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_clothes_005",
+      "p_clothes_022"
+    ],
+    "notes": "卫衣需求+排除夸张图案→基础logo/经典logo卫衣"
+  },
+  {
+    "id": "q178",
+    "query": "想喝气泡水，不要可乐味",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_food_004",
+      "p_food_024"
+    ],
+    "notes": "气泡饮需求+排除可乐风味→果味气泡水"
+  },
+  {
+    "id": "q179",
+    "query": "想买护肤精华，不要国外大牌太贵的",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_beauty_009",
+      "p_beauty_018",
+      "p_beauty_024"
+    ],
+    "notes": "精华需求+排除国外高价大牌→国产/平价功效精华"
+  },
+  {
+    "id": "q180",
+    "query": "运动裤想日常穿，不要紧身裤",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_clothes_004",
+      "p_clothes_006"
+    ],
+    "notes": "运动裤日常穿+排除紧身版型→针织/束脚运动长裤"
+  },
+  {
+    "id": "q181",
+    "query": "早八来不及吃早餐，想带点方便垫肚子的",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_food_007",
+      "p_food_008",
+      "p_food_009",
+      "p_food_010",
+      "p_food_016",
+      "p_food_017",
+      "p_food_019"
+    ],
+    "notes": "赶时间早餐/加餐→常温奶、酸奶、糕点、独立坚果"
+  },
+  {
+    "id": "q182",
+    "query": "夏天办公室也能穿的基础白上衣，别太贵",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_clothes_001"
+    ],
+    "notes": "夏季基础白色上衣+低价日常穿→优衣库基础T恤"
+  },
+  {
+    "id": "q183",
+    "query": "给家里老人喝的常温奶，蛋白高一点",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_food_007",
+      "p_food_016"
+    ],
+    "notes": "常温奶与高蛋白营养诉求→金典/特仑苏纯牛奶"
+  },
+  {
+    "id": "q184",
+    "query": "画眉总是下手太重，想找细一点好控制的",
+    "query_type": "ambiguous",
+    "relevant_product_ids": [
+      "p_beauty_025"
+    ],
+    "notes": "只描述化妆问题未直说眉笔→细节点描双头眉笔"
+  },
+  {
+    "id": "q185",
+    "query": "预算三四千，想买台上课记笔记的设备",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_digital_011",
+      "p_digital_019"
+    ],
+    "notes": "预算范围+学习记笔记→三四千价位学习平板"
+  },
+  {
+    "query": "户外办公经常看不清屏幕，想买亮度高一点的轻薄本",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_digital_022"
+    ],
+    "notes": "户外强光办公→高亮防眩光轻薄商务本",
+    "id": "q186"
+  },
+  {
+    "query": "想买一台能跑本地AI绘图的大屏平板",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_digital_013",
+      "p_digital_024"
+    ],
+    "notes": "本地AI绘图和大屏创作→高性能13英寸iPad Pro",
+    "id": "q187"
+  },
+  {
+    "query": "宽脚打球总挤脚，想买双前掌空间大点的篮球鞋",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_clothes_011"
+    ],
+    "notes": "宽脚篮球实战→宽楦EP版篮球鞋",
+    "id": "q188"
+  },
+  {
+    "query": "夏天骑车通勤想戴顶能防晒、出汗也干得快的帽子",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_clothes_024"
+    ],
+    "notes": "骑车通勤防晒速干→UPF50+速干鸭舌帽",
+    "id": "q189"
+  },
+  {
+    "query": "想买酸菜口味的方便面，整箱囤着夜宵吃",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_food_012"
+    ],
+    "notes": "口味+整箱速食→统一老坛酸菜牛肉面",
+    "id": "q190"
+  },
+  {
+    "query": "想囤24罐红牛，熬夜加班的时候喝",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_food_006"
+    ],
+    "notes": "品牌+箱规+提神场景→红牛24罐整箱",
+    "id": "q191"
+  },
+  {
+    "query": "想买白桃味、0糖0卡的气泡水",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_food_004"
+    ],
+    "notes": "口味+0糖0卡→元气森林白桃味气泡水",
+    "id": "q192"
+  },
+  {
+    "query": "专业剪片想要16英寸、32GB内存、1TB起步的电脑",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_digital_012"
+    ],
+    "notes": "尺寸、内存、存储和专业剪辑→16英寸MacBook Pro",
+    "id": "q193"
+  },
+  {
+    "query": "我用华为手机，想买能互传文件和多屏协同的电脑",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_digital_004"
+    ],
+    "notes": "华为生态跨端协同→MateBook 14鸿蒙版",
+    "id": "q194"
+  },
+  {
+    "query": "想买能测心率的苹果降噪耳机",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_digital_018"
+    ],
+    "notes": "品牌+心率监测+降噪→AirPods Pro 3",
+    "id": "q195"
+  },
+  {
+    "query": "经常只化淡妆，想买温和一点的卸妆油",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_beauty_017"
+    ],
+    "notes": "淡妆卸除与温和清洁→芳珂卸妆油",
+    "id": "q196"
+  },
+  {
+    "query": "想买一瓶能湿敷、调理粗糙角质的化妆水",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_beauty_003"
+    ],
+    "notes": "湿敷和角质调理→SK-II护肤精华露",
+    "id": "q197"
+  },
+  {
+    "query": "下午想喝咖啡，但希望用冷水也能很快冲开",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_food_001",
+      "p_food_022",
+      "p_food_023"
+    ],
+    "notes": "冷水即溶咖啡需求→三顿半即溶/冷萃、雀巢冻干黑咖啡",
+    "id": "q198"
+  },
+  {
+    "query": "办公室久坐想穿舒服点的运动长裤，不要太紧",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_clothes_004",
+      "p_clothes_006"
+    ],
+    "notes": "办公室舒适长裤+排除紧身→针织/束脚运动长裤",
+    "id": "q199"
+  },
+  {
+    "query": "想买小支装精华，先试试会不会刺激皮肤",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_beauty_001",
+      "p_beauty_002",
+      "p_beauty_004",
+      "p_beauty_005",
+      "p_beauty_009",
+      "p_beauty_018",
+      "p_beauty_024"
+    ],
+    "notes": "小规格试用与刺激顾虑→30ml左右精华",
+    "id": "q200"
+  }
+]
