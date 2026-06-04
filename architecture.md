@@ -7,10 +7,13 @@
 │ Android Client   │ ────────────────▶ │ FastAPI Server                       │
 │ Kotlin/Compose   │   POST /api/chat  │                                      │
 │                  │ ◀──────────────── │ ┌───────────┐     ┌──────────────┐   │
-│ ChatViewModel    │ product/token/done│ │ Retriever │ ──▶ │ ChromaDB     │   │
-│ ChatApiService   │                   │ └───────────┘     └──────────────┘   │
-│ ChatScreen       │                   │       │                              │
-└──────────────────┘                   │       ▼                              │
+│ ChatViewModel    │ product/token/done│ │  Intent   │ ──▶ │ Doubao API   │   │
+│ ChatApiService   │                   │ └─────┬─────┘     └──────────────┘   │
+│ ChatScreen       │                   │       ▼                              │
+└──────────────────┘                   │ ┌───────────┐     ┌──────────────┐   │
+                                       │ │ Retriever │ ──▶ │ ChromaDB     │   │
+                                       │ └─────┬─────┘     └──────────────┘   │
+                                       │       ▼                              │
                                        │ ┌───────────┐     ┌──────────────┐   │
                                        │ │ Generator │ ──▶ │ Doubao API   │   │
                                        │ └───────────┘     └──────────────┘   │
@@ -26,22 +29,30 @@
 ### server/ingest.py
 - 扫描 `ecommerce_agent_dataset/` 下所有类目目录
 - 解析商品 JSON 文件
-- 将商品信息拼接为可检索 document
-- 调用 Embedding 模型向量化
-- 写入 ChromaDB，并保存商品元数据
+- 每个商品按语义拆分为 2-3 个 chunk（core 卖点 / faq 问答 / review 评价），每个 chunk 带标题+品牌+类目前缀
+- 向量化文本与存储文本分离：embedding 基于精简 chunk 计算，ChromaDB documents 存完整商品原文供 LLM 阅读
+- 写入 ChromaDB，同一 product_id 对应多条向量记录
 
 ### server/embedding.py
 - 统一创建 ChromaDB embedding function
-- 使用 `shibing624/text2vec-base-chinese`
+- 使用 `BAAI/bge-base-zh-v1.5`（512 token 窗口）
+
+### server/intent.py
+- 调用 Doubao API 解析用户购物意图
+- 输出结构化 JSON：改写 query、类目、价格区间、品牌排除、否定约束
+- 解析失败时回退为原始 query
 
 ### server/retriever.py
 - 加载 ChromaDB collection
-- 接收用户 query 并生成 query embedding
-- 执行相似度检索、查询扩展与轻量重排
+- 接收用户 query 和 intent，用 rewritten_query 做向量检索
+- 结合 category / price / brand 的 ChromaDB metadata filter
+- 按 product_id 去重（保留距离最小的 chunk）
+- 词法匹配 + 价格加权轻量重排
 - 返回 Top-K 商品信息
 
 ### server/generator.py
 - 构造 System Prompt + User Prompt，并注入检索上下文
+- 要求 LLM 在回复开头输出 `<R>product_id,...</R>` 推荐标记
 - 调用 Doubao API 的 OpenAI 兼容接口，使用 `stream=True`
 - 逐 token yield 生成结果
 
@@ -54,7 +65,7 @@
 - 配置 CORS 中间件
 - 挂载 `/assets` 静态资源路径，用于返回商品图片
 - 提供 `GET /health`
-- 提供 `POST /api/chat` SSE 端点，串联 retriever、generator 与 SSE 输出
+- 提供 `POST /api/chat` SSE 端点：意图解析 → 混合检索 → LLM 流式生成 → 解析 `<R>` 标记 → 只发送 LLM 推荐的商品卡片 → 流式文本
 
 ### client-android/
 - `MainActivity`：应用入口，启用 edge-to-edge 后挂载 `ChatRoute`
@@ -86,14 +97,13 @@ ChatApiService
     │ POST {"message": "...", "conversation_id": "..."} 到 /api/chat
     ▼
 FastAPI
-    │ 1. query embedding
-    │ 2. ChromaDB 检索 Top-5 并重排
-    │ 3. 组装 prompt + context
-    │ 4. 调用 Doubao API stream
+    │ 1. LLM 意图解析（query 改写 + 结构化 filter）
+    │ 2. ChromaDB 混合检索 Top-K 并重排
+    │ 3. 组装 prompt + context，调用 Doubao API stream
+    │ 4. 解析 <R> 标记，只发送 LLM 推荐的 product 事件
     ▼
 SSE event: product
-    │ ChatApiService 解析为 ProductFound
-    │ ChatViewModel 追加到 assistant 消息的 products
+    │ 仅包含 LLM 明确推荐的商品
     ▼
 SSE event: token
     │ ChatApiService 解析为 Token
@@ -111,7 +121,7 @@ ChatScreen 渲染消息气泡、商品卡片、图片和详情弹窗
 |------|------|
 | 后端框架 | Python 3.10+ / FastAPI |
 | 向量数据库 | ChromaDB（嵌入式） |
-| Embedding | shibing624/text2vec-base-chinese |
+| Embedding | BAAI/bge-base-zh-v1.5（512 token 窗口） |
 | LLM | Doubao-Seed-2.0-lite（Ark API） |
 | 流式传输 | SSE (Server-Sent Events) |
 | Android UI | Kotlin / Jetpack Compose / Material3 |

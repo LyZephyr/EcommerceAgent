@@ -1,0 +1,290 @@
+{
+  "top_k": 5,
+  "with_intent": true,
+  "ground_truth_path": "/home/lyz/EcommerceAgent/eval/ground_truth.json",
+  "query_count": 3,
+  "summary": {
+    "recall_at_k": 0.6,
+    "mrr": 0.5,
+    "hit_rate_at_k": 0.6666666666666666,
+    "precision_at_k": 0.3333333333333333
+  },
+  "details": [
+    {
+      "id": "q001",
+      "query": "夏天想买件日常穿的清爽上衣",
+      "relevant_product_ids": [
+        "p_clothes_001",
+        "p_clothes_002",
+        "p_clothes_003",
+        "p_clothes_020",
+        "p_clothes_021"
+      ],
+      "retrieved_product_ids": [
+        "p_clothes_001",
+        "p_clothes_002",
+        "p_clothes_020",
+        "p_clothes_003",
+        "p_clothes_005"
+      ],
+      "hit_product_ids": [
+        "p_clothes_001",
+        "p_clothes_002",
+        "p_clothes_020",
+        "p_clothes_003"
+      ],
+      "missed_product_ids": [
+        "p_clothes_021"
+      ],
+      "unexpected_product_ids": [
+        "p_clothes_005"
+      ],
+      "first_relevant_rank": 1,
+      "metrics": {
+        "recall_at_k": 0.8,
+        "mrr": 1.0,
+        "hit_rate_at_k": 1.0,
+        "precision_at_k": 0.8,
+        "hit_count": 4.0,
+        "relevant_count": 5.0,
+        "retrieved_count": 5.0
+      },
+      "retrieved_products": [
+        {
+          "product_id": "p_clothes_001",
+          "title": "优衣库 U AIRism 棉质宽松圆领短袖T恤 男装 基础纯色上衣",
+          "brand": "优衣库",
+          "category": "服饰运动",
+          "sub_category": "短袖T恤",
+          "price": 99.0,
+          "distance": 0.3789265751838684
+        },
+        {
+          "product_id": "p_clothes_002",
+          "title": "优衣库 DRY-EX 超快干圆领短袖T恤 男装 运动训练上衣",
+          "brand": "优衣库",
+          "category": "服饰运动",
+          "sub_category": "短袖T恤",
+          "price": 129.0,
+          "distance": 0.4468936324119568
+        },
+        {
+          "product_id": "p_clothes_020",
+          "title": "迪卡侬 KALENJI 男子跑步速干T恤轻薄透气基础训练短袖上衣",
+          "brand": "迪卡侬",
+          "category": "服饰运动",
+          "sub_category": "速干T恤",
+          "price": 79.0,
+          "distance": 0.4482805132865906
+        },
+        {
+          "product_id": "p_clothes_003",
+          "title": "Nike Dri-FIT 男子训练短袖T恤 速干透气运动上衣",
+          "brand": "耐克",
+          "category": "服饰运动",
+          "sub_category": "短袖T恤",
+          "price": 199.0,
+          "distance": 0.4366471767425537
+        },
+        {
+          "product_id": "p_clothes_005",
+          "title": "李宁 运动生活系列 男子连帽套头卫衣 基础Logo印花上衣",
+          "brand": "李宁",
+          "category": "服饰运动",
+          "sub_category": "卫衣",
+          "price": 259.0,
+          "distance": 0.4662034511566162
+        }
+      ],
+      "intent": {
+        "rewritten_query": "夏季日常上衣 清爽透气 薄款 休闲舒适 亲肤",
+        "category": "服饰运动",
+        "min_price": null,
+        "max_price": null,
+        "exclude_brands": [],
+        "negative_constraints": []
+      }
+    },
+    {
+      "id": "q002",
+      "query": "想买一条适合居家穿的宽松裤子",
+      "relevant_product_ids": [
+        "p_clothes_004",
+        "p_clothes_006"
+      ],
+      "retrieved_product_ids": [
+        "p_clothes_020",
+        "p_clothes_023",
+        "p_clothes_022",
+        "p_clothes_016",
+        "p_clothes_017"
+      ],
+      "hit_product_ids": [],
+      "missed_product_ids": [
+        "p_clothes_004",
+        "p_clothes_006"
+      ],
+      "unexpected_product_ids": [
+        "p_clothes_020",
+        "p_clothes_023",
+        "p_clothes_022",
+        "p_clothes_016",
+        "p_clothes_017"
+      ],
+      "first_relevant_rank": null,
+      "metrics": {
+        "recall_at_k": 0.0,
+        "mrr": 0.0,
+        "hit_rate_at_k": 0.0,
+        "precision_at_k": 0.0,
+        "hit_count": 0.0,
+        "relevant_count": 2.0,
+        "retrieved_count": 5.0
+      },
+      "retrieved_products": [
+        {
+          "product_id": "p_clothes_020",
+          "title": "迪卡侬 KALENJI 男子跑步速干T恤轻薄透气基础训练短袖上衣",
+          "brand": "迪卡侬",
+          "category": "服饰运动",
+          "sub_category": "速干T恤",
+          "price": 79.0,
+          "distance": 0.5793302059173584
+        },
+        {
+          "product_id": "p_clothes_023",
+          "title": "优衣库 男装 DRY 速干运动短裤 轻薄透气训练裤",
+          "brand": "优衣库",
+          "category": "服饰运动",
+          "sub_category": "运动短裤",
+          "price": 149.0,
+          "distance": 0.48833656311035156
+        },
+        {
+          "product_id": "p_clothes_022",
+          "title": "adidas Originals 三叶草 男子连帽卫衣 经典logo套头上衣",
+          "brand": "阿迪达斯",
+          "category": "服饰运动",
+          "sub_category": "卫衣",
+          "price": 459.0,
+          "distance": 0.6447948217391968
+        },
+        {
+          "product_id": "p_clothes_016",
+          "title": "Lululemon Align 高腰紧身裤 25英寸 女士瑜伽裤柔软裸感运动裤",
+          "brand": "露露乐蒙",
+          "category": "服饰运动",
+          "sub_category": "瑜伽裤",
+          "price": 880.0,
+          "distance": 0.4784085750579834
+        },
+        {
+          "product_id": "p_clothes_017",
+          "title": "Arc'teryx Gamma Pant 男子软壳长裤耐磨弹力户外徒步攀爬长裤",
+          "brand": "始祖鸟",
+          "category": "服饰运动",
+          "sub_category": "户外裤",
+          "price": 1290.0,
+          "distance": 0.5069764852523804
+        }
+      ],
+      "intent": {
+        "rewritten_query": "居家宽松裤子 家居睡裤 亲肤 舒适 透气 休闲居家裤",
+        "category": "服饰运动",
+        "min_price": null,
+        "max_price": null,
+        "exclude_brands": [],
+        "negative_constraints": []
+      }
+    },
+    {
+      "id": "q003",
+      "query": "想买一支日常通勤用、颜色自然的唇釉",
+      "relevant_product_ids": [
+        "p_beauty_015"
+      ],
+      "retrieved_product_ids": [
+        "p_beauty_025",
+        "p_beauty_015",
+        "p_beauty_013",
+        "p_beauty_020",
+        "p_beauty_014"
+      ],
+      "hit_product_ids": [
+        "p_beauty_015"
+      ],
+      "missed_product_ids": [],
+      "unexpected_product_ids": [
+        "p_beauty_025",
+        "p_beauty_013",
+        "p_beauty_020",
+        "p_beauty_014"
+      ],
+      "first_relevant_rank": 2,
+      "metrics": {
+        "recall_at_k": 1.0,
+        "mrr": 0.5,
+        "hit_rate_at_k": 1.0,
+        "precision_at_k": 0.2,
+        "hit_count": 1.0,
+        "relevant_count": 1.0,
+        "retrieved_count": 5.0
+      },
+      "retrieved_products": [
+        {
+          "product_id": "p_beauty_025",
+          "title": "花西子螺黛生花眉笔细节点描顺滑显色防晕染持久双头眉笔0.08g",
+          "brand": "花西子",
+          "category": "美妆护肤",
+          "sub_category": "眉笔",
+          "price": 89.0,
+          "distance": 0.5401712656021118
+        },
+        {
+          "product_id": "p_beauty_015",
+          "title": "完美日记仿生膜精华唇釉丝绒哑光滋润显色持妆唇部彩妆3g",
+          "brand": "完美日记",
+          "category": "美妆护肤",
+          "sub_category": "唇釉",
+          "price": 120.0,
+          "distance": 0.3615145683288574
+        },
+        {
+          "product_id": "p_beauty_013",
+          "title": "方里柔焦蜜粉饼控油定妆细腻粉质隐匿毛孔提亮肤色粉饼7g",
+          "brand": "方里",
+          "category": "美妆护肤",
+          "sub_category": "蜜粉",
+          "price": 99.0,
+          "distance": 0.49917829036712646
+        },
+        {
+          "product_id": "p_beauty_020",
+          "title": "雅诗兰黛持妆粉底液SPF10PA持久遮瑕控油抗汗清透底妆30ml",
+          "brand": "雅诗兰黛",
+          "category": "美妆护肤",
+          "sub_category": "粉底液",
+          "price": 440.0,
+          "distance": 0.5060716867446899
+        },
+        {
+          "product_id": "p_beauty_014",
+          "title": "花西子空气蜜粉轻盈定妆控油提亮肤色细腻粉质散粉8.5g",
+          "brand": "花西子",
+          "category": "美妆护肤",
+          "sub_category": "蜜粉",
+          "price": 169.0,
+          "distance": 0.527925968170166
+        }
+      ],
+      "intent": {
+        "rewritten_query": "日常通勤 自然色唇釉 素颜可用 提气色 滋润 持久 不拔干",
+        "category": "美妆护肤",
+        "min_price": null,
+        "max_price": null,
+        "exclude_brands": [],
+        "negative_constraints": []
+      }
+    }
+  ]
+}

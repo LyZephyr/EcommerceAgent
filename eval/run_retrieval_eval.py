@@ -1,8 +1,9 @@
-"""离线评估当前商品召回质量。"""
+"""离线评估商品召回质量，支持带 LLM 意图解析的检索链路。"""
 
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import sys
 from pathlib import Path
@@ -14,6 +15,7 @@ if str(SERVER_DIR) not in sys.path:
     sys.path.insert(0, str(SERVER_DIR))
 
 from config import TOP_K  # noqa: E402
+from intent import parse_intent  # noqa: E402
 from retriever import retrieve  # noqa: E402
 
 DEFAULT_GROUND_TRUTH_PATH = PROJECT_ROOT / "eval" / "ground_truth.json"
@@ -22,28 +24,54 @@ DEFAULT_REPORT_DIR = PROJECT_ROOT / "eval" / "reports"
 
 def main() -> None:
     args = parse_args()
-    top_k = args.top_k
     ground_truth = load_ground_truth(args.ground_truth)
-    details = [evaluate_query(item, top_k) for item in ground_truth]
+    if args.limit:
+        ground_truth = ground_truth[: args.limit]
+
+    details = asyncio.run(run_evaluation(ground_truth, args.top_k, args.with_intent))
     summary = summarize(details)
     report = {
-        "top_k": top_k,
+        "top_k": args.top_k,
+        "with_intent": args.with_intent,
         "ground_truth_path": str(args.ground_truth),
         "query_count": len(details),
         "summary": summary,
         "details": details,
     }
 
-    output_path = args.output or DEFAULT_REPORT_DIR / f"retrieval_eval_top{top_k}.json"
+    output_path = args.output or default_report_path(args.top_k, args.with_intent)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
-    print_summary(summary, top_k, len(details), output_path)
-    print_details(details, top_k)
+    mode = "with intent" if args.with_intent else "retrieval only"
+    print_summary(summary, args.top_k, len(details), output_path, mode)
+    print_details(details, args.top_k)
+
+
+async def run_evaluation(
+    ground_truth: list[dict[str, Any]],
+    top_k: int,
+    with_intent: bool,
+) -> list[dict[str, Any]]:
+    details: list[dict[str, Any]] = []
+    total = len(ground_truth)
+    for index, item in enumerate(ground_truth, start=1):
+        intent = await parse_intent(item["query"]) if with_intent else None
+        details.append(evaluate_query(item, top_k, intent))
+        if index % 10 == 0 or index == total:
+            print(f"Progress: {index}/{total}", file=sys.stderr)
+    return details
+
+
+def default_report_path(top_k: int, with_intent: bool) -> Path:
+    suffix = "_with_intent" if with_intent else ""
+    return DEFAULT_REPORT_DIR / f"retrieval_eval_top{top_k}{suffix}.json"
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Evaluate retrieve(query, top_k) against a ground-truth set.")
+    parser = argparse.ArgumentParser(
+        description="Evaluate retrieve(query, top_k, intent) against a ground-truth set.",
+    )
     parser.add_argument(
         "--ground-truth",
         type=Path,
@@ -60,15 +88,35 @@ def parse_args() -> argparse.Namespace:
         "--output",
         type=Path,
         default=None,
-        help="Report JSON output path. Default: eval/reports/retrieval_eval_top{K}.json",
+        help="Report JSON output path. Default: eval/reports/retrieval_eval_top{K}[_with_intent].json",
     )
+    parser.add_argument(
+        "--limit",
+        type=positive_int,
+        default=None,
+        help="Only evaluate the first N queries (useful for quick checks).",
+    )
+    intent_group = parser.add_mutually_exclusive_group()
+    intent_group.add_argument(
+        "--with-intent",
+        dest="with_intent",
+        action="store_true",
+        help="Parse intent via LLM before retrieval (default).",
+    )
+    intent_group.add_argument(
+        "--no-intent",
+        dest="with_intent",
+        action="store_false",
+        help="Evaluate pure retrieval without LLM intent parsing.",
+    )
+    parser.set_defaults(with_intent=True)
     return parser.parse_args()
 
 
 def positive_int(value: str) -> int:
     parsed = int(value)
     if parsed <= 0:
-        raise argparse.ArgumentTypeError("--top-k must be a positive integer")
+        raise argparse.ArgumentTypeError("value must be a positive integer")
     return parsed
 
 
@@ -113,8 +161,8 @@ def require_string(item: dict[str, Any], key: str, index: int) -> str:
     return value
 
 
-def evaluate_query(item: dict[str, Any], top_k: int) -> dict[str, Any]:
-    products = retrieve(item["query"], top_k=top_k)
+def evaluate_query(item: dict[str, Any], top_k: int, intent: dict | None) -> dict[str, Any]:
+    products = retrieve(item["query"], top_k=top_k, intent=intent)
     retrieved_product_ids = [str(product["product_id"]) for product in products]
     relevant_product_ids = item["relevant_product_ids"]
     relevant_set = set(relevant_product_ids)
@@ -129,7 +177,7 @@ def evaluate_query(item: dict[str, Any], top_k: int) -> dict[str, Any]:
         first_relevant_rank=first_relevant_rank,
         top_k=top_k,
     )
-    return {
+    result = {
         "id": item["id"],
         "query": item["query"],
         "relevant_product_ids": relevant_product_ids,
@@ -141,6 +189,9 @@ def evaluate_query(item: dict[str, Any], top_k: int) -> dict[str, Any]:
         "metrics": metrics,
         "retrieved_products": [product_summary(product) for product in products],
     }
+    if intent is not None:
+        result["intent"] = intent
+    return result
 
 
 def first_rank(retrieved_product_ids: list[str], relevant_set: set[str]) -> int | None:
@@ -202,8 +253,14 @@ def mean_metric(details: list[dict[str, Any]], metric_name: str) -> float:
     return sum(values) / len(values)
 
 
-def print_summary(summary: dict[str, float], top_k: int, query_count: int, output_path: Path) -> None:
-    print(f"Evaluated {query_count} queries with K={top_k}")
+def print_summary(
+    summary: dict[str, float],
+    top_k: int,
+    query_count: int,
+    output_path: Path,
+    mode: str,
+) -> None:
+    print(f"Evaluated {query_count} queries with K={top_k} ({mode})")
     print(f"Recall@{top_k}: {summary['recall_at_k']:.4f}")
     print(f"MRR: {summary['mrr']:.4f}")
     print(f"Hit Rate@{top_k}: {summary['hit_rate_at_k']:.4f}")
@@ -222,6 +279,9 @@ def print_details(details: list[dict[str, Any]], top_k: int) -> None:
             f"| MRR {format_metric(metrics['mrr'])} | HR@{top_k} {metrics['hit_rate_at_k']:.4f} "
             f"| P@{top_k} {metrics['precision_at_k']:.4f} | query: {detail['query']}"
         )
+        if detail.get("intent"):
+            intent = detail["intent"]
+            print(f"  intent: {intent.get('rewritten_query')} | category={intent.get('category')!r}")
         print(f"  relevant: {', '.join(detail['relevant_product_ids'])}")
         print(f"  retrieved: {', '.join(detail['retrieved_product_ids'])}")
         print(f"  hits: {', '.join(detail['hit_product_ids']) or '-'}")

@@ -31,7 +31,7 @@
 
 | event | data 结构 | 说明 |
 |-------|-----------|------|
-| `product` | `{"product_id": "...", "title": "...", "brand": "...", "category": "...", "sub_category": "...", "price": 99.0, "image_url": "..."}` | 检索到的商品卡片数据，在 LLM 回复之前发送 |
+| `product` | `{"product_id": "...", "title": "...", "brand": "...", "category": "...", "sub_category": "...", "price": 99.0, "image_url": "..."}` | LLM 明确推荐的商品卡片，在解析 `<R>` 标记后、文本 token 之前发送 |
 | `token` | `{"content": "这款"}` | LLM 生成的文本片段，逐 token 发送 |
 | `done` | `{}` | 流结束标记 |
 
@@ -44,14 +44,21 @@
 | 函数 | 签名 | 说明 |
 |------|------|------|
 | `load_products` | `(dataset_dir: str) -> list[dict]` | 扫描数据集目录，返回商品字典列表 |
-| `build_document` | `(product: dict) -> str` | 商品字典转换为可检索文本 |
-| `ingest` | `(dataset_dir: str \| None = None) -> None` | 主入口，执行完整导入流程 |
+| `build_chunks` | `(product: dict) -> list[dict]` | 将商品拆分为 2-3 个语义 chunk（core/faq/review），返回含 chunk_id、embedding_text、chunk_type 的字典列表 |
+| `build_full_document` | `(product: dict) -> str` | 构建完整商品文档，存入 ChromaDB documents 字段供 LLM 阅读 |
+| `ingest` | `(dataset_dir: str \| None = None) -> None` | 主入口：加载数据 → 分 chunk → embedding → 写入 ChromaDB |
+
+### intent.py
+
+| 函数 | 签名 | 说明 |
+|------|------|------|
+| `parse_intent` | `async (query: str) -> dict` | 调用 LLM 解析购物意图，返回 rewritten_query、category、价格区间、品牌排除等 |
 
 ### retriever.py
 
 | 函数 | 签名 | 说明 |
 |------|------|------|
-| `retrieve` | `(query: str, top_k: int = 5) -> list[dict]` | 语义检索、查询扩展、价格重排后返回 Top-K 商品 |
+| `retrieve` | `(query: str, top_k: int = 5, intent: dict \| None = None) -> list[dict]` | 基于 intent 做混合检索（metadata filter + 向量语义），按 product_id 去重后返回 Top-K 商品 |
 
 ### embedding.py
 
@@ -82,12 +89,20 @@
 
 ### eval/run_retrieval_eval.py
 
-对 Ground Truth 中每条查询调用当前 `retrieve(query, top_k)`，计算召回质量指标。
+对 Ground Truth 中每条查询调用检索链路并计算召回质量指标。默认先经 LLM 意图解析（`parse_intent`），再调用 `retrieve(query, top_k, intent)`，与线上 `/api/chat` 检索阶段一致。
 
 **命令**：
 
 ```bash
+# 带意图解析（默认），报告写入 eval/reports/retrieval_eval_top5_with_intent.json
 server/.venv/bin/python eval/run_retrieval_eval.py
+
+# 仅评估纯检索（不含 LLM 意图解析）
+server/.venv/bin/python eval/run_retrieval_eval.py --no-intent
+
+# 快速抽样（前 10 条，避免全量 LLM 调用）
+server/.venv/bin/python eval/run_retrieval_eval.py --limit 10
+
 server/.venv/bin/python eval/run_retrieval_eval.py --top-k 10
 HF_HUB_OFFLINE=1 server/.venv/bin/python eval/run_retrieval_eval.py
 ```
@@ -101,7 +116,7 @@ HF_HUB_OFFLINE=1 server/.venv/bin/python eval/run_retrieval_eval.py
 | `Hit Rate@K` | Top-K 中是否至少命中 1 个相关商品 |
 | `Precision@K` | Top-K 中命中的相关商品数 / K |
 
-默认 K 读取 `server/config.py` 中的 `TOP_K`，也可通过 `--top-k` 覆盖。完整报告写入 `eval/reports/retrieval_eval_top{K}.json`，包含整体分数和逐 query 命中详情。
+默认 K 读取 `server/config.py` 中的 `TOP_K`，也可通过 `--top-k` 覆盖。完整报告写入 `eval/reports/retrieval_eval_top{K}_with_intent.json`（带意图）或 `eval/reports/retrieval_eval_top{K}.json`（`--no-intent`），包含整体分数、逐 query 命中详情及解析出的 intent。
 如果当前环境禁止访问 Hugging Face，但 embedding 模型已经存在本地缓存，可使用 `HF_HUB_OFFLINE=1` 强制离线加载。
 
 ---

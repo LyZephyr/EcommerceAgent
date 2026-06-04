@@ -10,9 +10,14 @@
 │   ├── config.py               # 配置管理
 │   ├── ingest.py               # 数据导入 & 向量化
 │   ├── retriever.py            # RAG 检索模块
+│   ├── intent.py               # LLM 意图解析
 │   ├── generator.py            # LLM 对话生成
 │   ├── schemas.py              # 数据模型
 │   └── requirements.txt        # Python 依赖
+├── eval/                       # 离线检索评估
+│   ├── ground_truth.json       # 评估 query 与标注
+│   ├── run_retrieval_eval.py   # 评估脚本
+│   └── reports/                # 评估报告输出
 ├── client-android/             # Android 客户端 (Kotlin/Compose)
 ├── ecommerce_agent_dataset/    # 商品数据集 (4 类目 × 25 条)
 ├── PLAN.md                     # 实施计划
@@ -50,6 +55,33 @@ python ingest.py
 uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
+### 检索评估
+
+评估脚本位于 `eval/run_retrieval_eval.py`，默认走与线上一致的检索链路：`parse_intent` → `retrieve(query, top_k, intent)`。
+
+**前置条件**：已执行 `python ingest.py` 导入向量库。
+
+```bash
+# 在项目根目录执行
+
+# 带 LLM 意图解析（默认），报告写入 eval/reports/retrieval_eval_top5_with_intent.json
+server/.venv/bin/python eval/run_retrieval_eval.py
+
+# 快速抽样（前 10 条，避免全量 LLM 调用）
+server/.venv/bin/python eval/run_retrieval_eval.py --limit 10
+
+# 仅评估纯检索，不含意图解析（对比用）
+server/.venv/bin/python eval/run_retrieval_eval.py --no-intent
+
+# 指定 Top-K
+server/.venv/bin/python eval/run_retrieval_eval.py --top-k 10
+
+# 离线环境（embedding 模型已缓存时）
+HF_HUB_OFFLINE=1 server/.venv/bin/python eval/run_retrieval_eval.py
+```
+
+**输出指标**：Recall@K、MRR、Hit Rate@K、Precision@K。完整报告含逐条 query 的命中详情及解析出的 `intent` 字段。
+
 ### Android 客户端
 
 1. 用 Android Studio 打开 `client-android/` 目录
@@ -62,7 +94,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 |------|----------|
 | 后端框架 | FastAPI |
 | 向量数据库 | ChromaDB |
-| Embedding | text2vec-base-chinese |
+| Embedding | BAAI/bge-base-zh-v1.5 |
 | LLM | Doubao-Seed-2.0-lite |
 | 流式传输 | SSE |
 | Android | Kotlin / Jetpack Compose / Material3 |
