@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +17,7 @@ if str(SERVER_DIR) not in sys.path:
 
 from config import TOP_K  # noqa: E402
 from intent import parse_intent  # noqa: E402
-from retriever import retrieve  # noqa: E402
+from retriever import _build_where_filter, retrieve  # noqa: E402
 
 DEFAULT_GROUND_TRUTH_PATH = PROJECT_ROOT / "eval" / "ground_truth.json"
 DEFAULT_REPORT_DIR = PROJECT_ROOT / "eval" / "reports"
@@ -65,7 +66,7 @@ async def run_evaluation(
 
 def default_report_path(top_k: int, with_intent: bool) -> Path:
     suffix = "_with_intent" if with_intent else ""
-    return DEFAULT_REPORT_DIR / f"retrieval_eval_top{top_k}{suffix}.json"
+    return DEFAULT_REPORT_DIR / f"retrieval_eval_top{top_k}{suffix}_{timestamp()}.json"
 
 
 def parse_args() -> argparse.Namespace:
@@ -88,7 +89,7 @@ def parse_args() -> argparse.Namespace:
         "--output",
         type=Path,
         default=None,
-        help="Report JSON output path. Default: eval/reports/retrieval_eval_top{K}[_with_intent].json",
+        help="Report JSON output path. Default: eval/reports/retrieval_eval_top{K}[_with_intent]_{timestamp}.json",
     )
     parser.add_argument(
         "--limit",
@@ -190,6 +191,8 @@ def evaluate_query(item: dict[str, Any], top_k: int, intent: dict | None) -> dic
         "retrieved_products": [product_summary(product) for product in products],
     }
     if intent is not None:
+        result["search_text"] = intent.get("rewritten_query") or item["query"]
+        result["where_filter"] = _build_where_filter(intent)
         result["intent"] = intent
     return result
 
@@ -234,6 +237,7 @@ def product_summary(product: dict[str, Any]) -> dict[str, Any]:
         "sub_category": product.get("sub_category"),
         "price": product.get("price"),
         "distance": product.get("distance"),
+        "rerank_score": product.get("rerank_score"),
     }
 
 
@@ -282,6 +286,10 @@ def print_details(details: list[dict[str, Any]], top_k: int) -> None:
         if detail.get("intent"):
             intent = detail["intent"]
             print(f"  intent: {intent.get('rewritten_query')} | category={intent.get('category')!r}")
+            print(f"  must_have_terms: {intent.get('must_have_terms')}")
+            print(f"  exclude_terms: {intent.get('exclude_terms')}")
+            print(f"  search_text: {detail.get('search_text')}")
+            print(f"  where_filter: {detail.get('where_filter')}")
         print(f"  relevant: {', '.join(detail['relevant_product_ids'])}")
         print(f"  retrieved: {', '.join(detail['retrieved_product_ids'])}")
         print(f"  hits: {', '.join(detail['hit_product_ids']) or '-'}")
@@ -291,6 +299,10 @@ def format_metric(value: float | None) -> str:
     if value is None:
         return "n/a"
     return f"{value:.4f}"
+
+
+def timestamp() -> str:
+    return datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
 if __name__ == "__main__":

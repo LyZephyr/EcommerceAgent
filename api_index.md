@@ -44,21 +44,21 @@
 | 函数 | 签名 | 说明 |
 |------|------|------|
 | `load_products` | `(dataset_dir: str) -> list[dict]` | 扫描数据集目录，返回商品字典列表 |
-| `build_chunks` | `(product: dict) -> list[dict]` | 将商品拆分为 2-3 个语义 chunk（core/faq/review），返回含 chunk_id、embedding_text、chunk_type 的字典列表 |
+| `build_embedding_text` | `(product: dict) -> str` | 为商品构建紧凑的 embedding 文本（标题+品牌+类目+价格+卖点+FAQ 问题摘要+评价摘要），控制在 512 token 以内 |
 | `build_full_document` | `(product: dict) -> str` | 构建完整商品文档，存入 ChromaDB documents 字段供 LLM 阅读 |
-| `ingest` | `(dataset_dir: str \| None = None) -> None` | 主入口：加载数据 → 分 chunk → embedding → 写入 ChromaDB |
+| `ingest` | `(dataset_dir: str \| None = None) -> None` | 主入口：加载数据 → 构建 embedding 文本 → 写入 ChromaDB |
 
 ### intent.py
 
 | 函数 | 签名 | 说明 |
 |------|------|------|
-| `parse_intent` | `async (query: str) -> dict` | 调用 LLM 解析购物意图，返回 rewritten_query、category、价格区间、品牌排除等 |
+| `parse_intent` | `async (query: str) -> dict` | 调用 LLM 解析购物意图，返回 rewritten_query、category、价格区间、must_have_terms、exclude_terms、品牌排除等 |
 
 ### retriever.py
 
 | 函数 | 签名 | 说明 |
 |------|------|------|
-| `retrieve` | `(query: str, top_k: int = 5, intent: dict \| None = None) -> list[dict]` | 基于 intent 做混合检索（metadata filter + 向量语义），按 product_id 去重后返回 Top-K 商品 |
+| `retrieve` | `(query: str, top_k: int = 5, intent: dict \| None = None) -> list[dict]` | 基于 intent 做 metadata filter + 向量检索，结合 `distance`、`must_have_terms`、`exclude_terms` 加权重排返回 Top-K 商品 |
 
 ### embedding.py
 
@@ -85,7 +85,7 @@
 
 ### eval/ground_truth.json
 
-200 条检索评估查询，每条包含 `id`、`query`、`query_type`、人工可审核的 `relevant_product_ids` 和标注说明 `notes`。
+250 条检索评估查询，每条包含 `id`、`query`、`query_type`、人工可审核的 `relevant_product_ids` 和标注说明 `notes`。
 
 ### eval/run_retrieval_eval.py
 
@@ -94,7 +94,7 @@
 **命令**：
 
 ```bash
-# 带意图解析（默认），报告写入 eval/reports/retrieval_eval_top5_with_intent.json
+# 带意图解析（默认），报告写入 eval/reports/retrieval_eval_top5_with_intent_{timestamp}.json
 server/.venv/bin/python eval/run_retrieval_eval.py
 
 # 仅评估纯检索（不含 LLM 意图解析）
@@ -105,6 +105,9 @@ server/.venv/bin/python eval/run_retrieval_eval.py --limit 10
 
 server/.venv/bin/python eval/run_retrieval_eval.py --top-k 10
 HF_HUB_OFFLINE=1 server/.venv/bin/python eval/run_retrieval_eval.py
+
+# 复用已有报告中的 search_text/where_filter，不再调用 LLM，重新跑纯向量距离排序
+server/.venv/bin/python eval/run_saved_intent_vector_eval.py
 ```
 
 **输出指标**：
@@ -116,7 +119,9 @@ HF_HUB_OFFLINE=1 server/.venv/bin/python eval/run_retrieval_eval.py
 | `Hit Rate@K` | Top-K 中是否至少命中 1 个相关商品 |
 | `Precision@K` | Top-K 中命中的相关商品数 / K |
 
-默认 K 读取 `server/config.py` 中的 `TOP_K`，也可通过 `--top-k` 覆盖。完整报告写入 `eval/reports/retrieval_eval_top{K}_with_intent.json`（带意图）或 `eval/reports/retrieval_eval_top{K}.json`（`--no-intent`），包含整体分数、逐 query 命中详情及解析出的 intent。
+默认 K 读取 `server/config.py` 中的 `TOP_K`，也可通过 `--top-k` 覆盖。完整报告写入 `eval/reports/retrieval_eval_top{K}_with_intent_{timestamp}.json`（带意图）或 `eval/reports/retrieval_eval_top{K}_{timestamp}.json`（`--no-intent`），包含整体分数、逐 query 命中详情及解析出的 intent。
+带意图评估的逐 query 详情还会输出 `search_text`（实际送入向量检索的改写文本）、`where_filter`（实际使用的 ChromaDB metadata filter）、`must_have_terms`、`exclude_terms` 和商品 `rerank_score`，用于排查意图改写、结构化过滤和重排是否导致召回偏移。
+`eval/run_saved_intent_vector_eval.py` 默认读取 `eval/reports/retrieval_eval_top5_with_intent.json` 中已缓存的 `search_text` 和 `where_filter`，直接查询 ChromaDB 并按向量距离排序，报告写入 `eval/reports/retrieval_eval_top{K}_saved_intent_vector_{timestamp}.json`。
 如果当前环境禁止访问 Hugging Face，但 embedding 模型已经存在本地缓存，可使用 `HF_HUB_OFFLINE=1` 强制离线加载。
 
 ---

@@ -29,9 +29,9 @@
 ### server/ingest.py
 - 扫描 `ecommerce_agent_dataset/` 下所有类目目录
 - 解析商品 JSON 文件
-- 每个商品按语义拆分为 2-3 个 chunk（core 卖点 / faq 问答 / review 评价），每个 chunk 带标题+品牌+类目前缀
-- 向量化文本与存储文本分离：embedding 基于精简 chunk 计算，ChromaDB documents 存完整商品原文供 LLM 阅读
-- 写入 ChromaDB，同一 product_id 对应多条向量记录
+- 每个商品生成一条紧凑的 embedding 文本（标题+品牌+类目+价格+卖点+FAQ 问题摘要+评价摘要），控制在 512 token 以内
+- 向量化文本与存储文本分离：embedding 基于紧凑文本计算，ChromaDB documents 存完整商品原文供 LLM 阅读
+- 写入 ChromaDB，每个 product_id 对应一条向量记录
 
 ### server/embedding.py
 - 统一创建 ChromaDB embedding function
@@ -39,15 +39,16 @@
 
 ### server/intent.py
 - 调用 Doubao API 解析用户购物意图
-- 输出结构化 JSON：改写 query、类目、价格区间、品牌排除、否定约束
+- 输出结构化 JSON：改写 query、类目、价格区间、正向关键词、否定关键词、品牌排除
+- 对"左右/出头"等模糊价格表达输出放宽后的价格区间
 - 解析失败时回退为原始 query
 
 ### server/retriever.py
-- 加载 ChromaDB collection
+- 模块级初始化 ChromaDB PersistentClient，复用连接
 - 接收用户 query 和 intent，用 rewritten_query 做向量检索
-- 结合 category / price / brand 的 ChromaDB metadata filter
-- 按 product_id 去重（保留距离最小的 chunk）
-- 词法匹配 + 价格加权轻量重排
+- 结合 category / SKU 价格范围 / brand 的 ChromaDB metadata filter
+- 用向量距离、must_have_terms 命中率和 exclude_terms 违规分加权重排
+- exclude_terms 采用指数衰减惩罚（0.3^n），并保护"无/不含/未添加"等否定上下文
 - 返回 Top-K 商品信息
 
 ### server/generator.py

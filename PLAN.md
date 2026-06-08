@@ -83,7 +83,7 @@
    - `category_hint`：推断的商品类目
    - `price_range`：{min, max}
    - `brand_filter`：{include, exclude}
-   - `negative_constraints`：排除条件列表
+   - `exclude_terms`：排除条件列表
    - `needs_clarification` + `clarification_question`：信息不足时的反问
 3. 改造 `retriever.py`：接收意图结构体，用 `rewritten_query` 做向量检索，用 `category_hint`/`price_range`/`brand_filter` 构建 ChromaDB `where` filter
 4. 删除手工 `_expand_query` 同义词表和 `_price_target` 正则——这些能力被 LLM 意图解析完全替代
@@ -122,7 +122,7 @@
 
 **方案**：
 
-1. 意图解析（子任务 2）已输出 `negative_constraints` 和 `brand_filter.exclude`
+1. 意图解析（子任务 2）已输出 `exclude_terms` 和 `brand_filter.exclude`
 2. 品牌排除：ChromaDB `where` filter 用 `$nin` 操作符
 3. 成分/功效等非结构化排除：由 LLM 在筛选阶段（子任务 3）读取 document 全文后判断，排除包含被否定属性的商品
 4. prompt 中明确指导 LLM 识别否定语义，不要将"不要X"理解为"要X"

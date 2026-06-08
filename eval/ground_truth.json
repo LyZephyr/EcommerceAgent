@@ -147,13 +147,13 @@
   },
   {
     "id": "q014",
-    "query": "去健身房需要带什么包",
+    "query": "想买一个平时通勤能装15寸左右电脑、周末近郊徒步也能背的双肩包，最好有防泼水面料、水杯侧袋，背久了别太压肩",
     "query_type": "functional_scene",
     "relevant_product_ids": [
       "p_clothes_018",
       "p_clothes_025"
     ],
-    "notes": "场景→背包，不直接提及品类"
+    "notes": "通勤电脑仓+近郊徒步+防泼水/水杯侧袋/背负舒适→两款通勤户外双肩包"
   },
   {
     "id": "q015",
@@ -404,13 +404,13 @@
   },
   {
     "id": "q037",
-    "query": "100块以内有什么好用的面霜",
+    "query": "换季脸颊泛红、干痒脱皮，想找一款敏感肌能日常薄涂也能偶尔厚敷急救的保湿修护面霜，尽量温和别闷",
     "query_type": "attribute_filter",
     "relevant_product_ids": [
       "p_beauty_007",
-      "p_beauty_008"
+      "p_beauty_012"
     ],
-    "notes": "价格约束。薇诺娜¥89起(15g)，玉兰油¥89起(14g)"
+    "notes": "敏感肌泛红干痒/屏障修护/保湿面霜→薇诺娜特护霜、理肤泉特安修复霜"
   },
   {
     "id": "q038",
@@ -752,13 +752,14 @@
   },
   {
     "id": "q071",
-    "query": "推荐一双能穿去公司不会太运动风的鞋",
+    "query": "每天通勤要走很多路，周末还想慢跑5到10公里，想买一双缓震软弹、透气、不用磨合太久的男款跑鞋，不要碳板竞速鞋",
     "query_type": "attribute_filter",
     "relevant_product_ids": [
       "p_clothes_007",
-      "p_clothes_008"
+      "p_clothes_008",
+      "p_clothes_009"
     ],
-    "notes": "负向风格约束，旧版零召回"
+    "notes": "通勤步行+日常慢跑+缓震透气+排除碳板竞速→飞马、Ultraboost、Clifton 这类日常训练/缓震跑鞋"
   },
   {
     "id": "q072",
@@ -2131,18 +2132,466 @@
     "id": "q199"
   },
   {
-    "query": "想买小支装精华，先试试会不会刺激皮肤",
+    "query": "油皮T区出油明显、毛孔粗还有点暗沉，想先买一支百元以内30ml左右的烟酰胺精华建立耐受，能控油提亮就行，不要面霜或化妆水",
     "query_type": "attribute_filter",
     "relevant_product_ids": [
-      "p_beauty_001",
-      "p_beauty_002",
-      "p_beauty_004",
-      "p_beauty_005",
-      "p_beauty_009",
-      "p_beauty_018",
+      "p_beauty_018"
+    ],
+    "notes": "油皮控油+毛孔暗沉+百元内30ml烟酰胺精华→The Ordinary烟酰胺10%锌1%精华",
+    "id": "q200"
+  },
+  {
+    "query": "换季皮肤不稳定、毛孔粗，想在爽肤后先用一瓶肌底液打开后续精华吸收，最好能兼顾熬夜暗沉和屏障抵御力",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_beauty_002"
+    ],
+    "notes": "肌底液使用顺序+益生元复合物+毛孔/换季维稳/熬夜暗沉→兰蔻小黑瓶",
+    "id": "q201"
+  },
+  {
+    "query": "约会前想用化妆棉湿敷5到10分钟急救，主要想让粗糙角质细一点、T区毛孔看着小一点，预算可以高但要大容量耐用",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_beauty_003"
+    ],
+    "notes": "湿敷急救+PITERA调理角质+230ml大容量→SK-II神仙水",
+    "id": "q202"
+  },
+  {
+    "query": "脸上有日晒斑和痘印，想买一支早上也能用的淡斑精华，质地清爽别搓泥，但我知道白天要叠足防晒",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_beauty_005"
+    ],
+    "notes": "日晒斑/痘印+维C衍生物淡斑+白天搭配防晒+清爽不搓泥→科颜氏淡斑精华",
+    "id": "q203"
+  },
+  {
+    "query": "空调房待久了脸颊泛红脱皮，想要滋润型屏障修复霜，最好有神经酰胺和温泉水，不要那种夏天控油的清爽面霜",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_beauty_012"
+    ],
+    "notes": "干敏空调房+滋润型+神经酰胺/温泉水+排除控油清爽→理肤泉特安修复霜",
+    "id": "q204"
+  },
+  {
+    "query": "刷酸后脸有点红、干痒，晚上想厚敷15到20分钟做急救，最好是干敏肌能用的舒缓补水修护类",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_beauty_007",
+      "p_beauty_012",
+      "p_beauty_022"
+    ],
+    "notes": "刷酸后泛红干痒+厚敷急救+舒缓补水修护→薇诺娜特护霜/理肤泉修复霜/薇诺娜极润面膜",
+    "id": "q205"
+  },
+  {
+    "query": "夏天油皮底妆一出汗就花，想要能遮痘印红血丝、通勤八小时不斑驳的粉底，防晒指数低没关系我会另外涂防晒",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_beauty_020"
+    ],
+    "notes": "油皮夏季+控油抗汗持妆+遮痘印红血丝+SPF10仍需额外防晒→雅诗兰黛持妆粉底液",
+    "id": "q206"
+  },
+  {
+    "query": "想找一个能放包里的小粉饼，中午按压T区补妆能柔焦毛孔、别假白，最好不是那种只有替换芯的补充装",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_beauty_013"
+    ],
+    "notes": "便携7g带壳粉饼+T区控油补妆+柔焦毛孔+排除补充装→方里柔焦蜜粉饼",
+    "id": "q207"
+  },
+  {
+    "query": "敏感肌每天晚上卸防水睫毛膏和眼线，想要无香料无酒精无防腐剂的卸妆油，能乳化干净，开封两个月内用完也能接受",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_beauty_017"
+    ],
+    "notes": "无添加配方+防水彩妆+快速乳化+开封60天→芳珂卸妆油",
+    "id": "q208"
+  },
+  {
+    "query": "眼尾干纹导致遮瑕卡粉，想上妆前厚敷5分钟打底，偏好牛油果油这种滋润眼霜，不想买全脸都能涂的多效眼霜",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_beauty_021"
+    ],
+    "notes": "眼周干纹卡粉+牛油果油+上妆前厚敷+排除全脸眼霜→科颜氏牛油果眼霜",
+    "id": "q209"
+  },
+  {
+    "query": "我是画眉新手，眉毛稀疏但想画出一根根毛流感，夏天出汗别晕成大黑块，笔芯细一点但别一用力就断",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_beauty_025"
+    ],
+    "notes": "新手野生眉+0.08g极细笔芯+防晕染+笔芯保养→花西子双头眉笔",
+    "id": "q210"
+  },
+  {
+    "query": "日常上班想涂一个高级哑光唇色，但嘴唇容易干，最好有锁水膜感，吃饭喝水少沾杯，三克左右方便带着补",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_beauty_015"
+    ],
+    "notes": "丝绒哑光+仿生膜锁水+6小时持妆少沾杯+3g便携→完美日记唇釉",
+    "id": "q211"
+  },
+  {
+    "query": "混油皮春夏想用大红瓶抗初老，重点是法令纹和脸垮，质地要轻一点，之前用滋润型面霜会闷痘",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_beauty_008"
+    ],
+    "notes": "大红瓶日霜轻盈款+法令纹/提拉+排除滋润型闷痘→玉兰油大红瓶",
+    "id": "q212"
+  },
+  {
+    "query": "最近熬夜脸垮、化妆卡纹，想用六胜肽和胶原肽这种抗皱紧致精华从下颌线往太阳穴按摩，不要只护理眼周的产品",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
       "p_beauty_024"
     ],
-    "notes": "小规格试用与刺激顾虑→30ml左右精华",
-    "id": "q200"
+    "notes": "六胜肽/双重胶原肽+熬夜垮脸+全脸抗皱紧致+排除眼霜→珀莱雅淡纹紧致精华",
+    "id": "q213"
+  },
+  {
+    "query": "油痘肌想先从隔天用开始建立耐受，诉求是控油、淡化毛孔和提亮，最好是10%烟酰胺加锌，暂时不要和酸类叠加",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_beauty_018"
+    ],
+    "notes": "10%烟酰胺+1%锌+油痘肌控油毛孔+隔天建立耐受+避免酸类→The Ordinary烟酰胺精华",
+    "id": "q214"
+  },
+  {
+    "query": "夏天晚上沿江跑步，想买百元内轻薄T恤，35度跑5公里别贴背，衣摆最好有反光条，洗的时候我会不用柔顺剂",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_clothes_020"
+    ],
+    "notes": "百元内+蜂窝网眼速干+35度跑步+夜跑反光条+不用柔顺剂维护→迪卡侬KALENJI速干T恤",
+    "id": "q215"
+  },
+  {
+    "query": "健身房练背穿纯棉T湿得难受，想买优衣库的运动短袖，出汗后走回家二十分钟能干，抬手做引体也别露肚子",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_clothes_002"
+    ],
+    "notes": "优衣库DRY-EX+健身速干+20分钟干透+抬臂不露腰→优衣库DRY-EX短袖",
+    "id": "q216"
+  },
+  {
+    "query": "半马想冲成绩，想买单只42码约185g、有全掌碳板推进的竞速鞋，平时通勤不穿，只做节奏跑和比赛",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_clothes_010"
+    ],
+    "notes": "185g轻量+动态弧面碳板+半马/节奏跑+排除日常通勤→特步160X 6.0 PRO",
+    "id": "q217"
+  },
+  {
+    "query": "宽脚锋线打全场需要一双中帮实战鞋，落地缓震要足，室内木地板和室外水泥半场都能打，最好是EP宽楦",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_clothes_011"
+    ],
+    "notes": "宽脚/EP宽楦+全掌Zoom Air+中帮全场支撑+室内外场地→Nike LeBron XXI EP",
+    "id": "q218"
+  },
+  {
+    "query": "我是投手，常打塑胶外场和球馆全场，想要中帮支撑但不要卡跟腱，氮科技回弹好一点，宽脚可以大半码",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_clothes_012"
+    ],
+    "notes": "投手实战+氮科技中底+中帮不卡跟腱+塑胶外场/球馆+宽脚大半码→安踏KT9",
+    "id": "q219"
+  },
+  {
+    "query": "周末要走有青苔石阶和碎石陡坡的山路，可能下雨，想要GORE-TEX防水、抓地强、10到20公里单日徒步不累脚的鞋",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_clothes_014",
+      "p_clothes_015"
+    ],
+    "notes": "湿滑石阶/碎石陡坡+GORE-TEX防水+长距离徒步支撑→萨洛蒙X ULTRA 4 GTX、迈乐MOAB 3 GTX",
+    "id": "q220"
+  },
+  {
+    "query": "想买一个能当备用小包塞进行李箱的轻量双肩包，日常放15.6寸电脑、水杯和伞，周末近郊徒步也能背，但别超过10kg负重",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_clothes_025"
+    ],
+    "notes": "20L轻量可折叠收纳+15.6寸电脑隔层+水杯伞侧袋+负重不超10kg→Osprey日光+",
+    "id": "q221"
+  },
+  {
+    "query": "通勤包要能放16寸带保护壳的电脑，还要有500ml保温杯侧袋和折叠伞位，防泼水，背三小时地铁别闷汗压肩",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_clothes_018"
+    ],
+    "notes": "28L+16寸电脑仓+500ml水杯/伞侧袋+防泼水+透气背板→北面Borealis背包",
+    "id": "q222"
+  },
+  {
+    "query": "头围大概61cm还戴眼镜，想买户外帽，正午能防晒，跑步出汗不闷，最好能折起来塞兜里不留死褶",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_clothes_024"
+    ],
+    "notes": "头围54-61cm+UPF50+防晒+速干透气+可折叠塞包+眼镜兼容→北面Horizon鸭舌帽",
+    "id": "q223"
+  },
+  {
+    "query": "早八来不及整理头发，想买顶日常水洗棉棒球帽，魔术贴能调头围，正面刺绣logo别洗几次就掉线",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_clothes_019"
+    ],
+    "notes": "遮乱发日常帽+水洗棉+魔术贴调节+立体刺绣耐洗→Nike Heritage86棒球帽",
+    "id": "q224"
+  },
+  {
+    "query": "练流瑜伽和普拉提需要一条裤子，下犬式别滑腰，浅色内裤别透出来，25英寸小个子穿不要堆裤脚，出门外穿也不尴尬",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_clothes_016"
+    ],
+    "notes": "Nulu裸感+高腰不滑+不透色+25英寸小个子友好+可外穿→Lululemon Align瑜伽裤",
+    "id": "q225"
+  },
+  {
+    "query": "想买一件三叶草连帽卫衣，胸口logo最好是刺绣不是容易裂的胶印，320g左右厚一点，微胖穿能藏肚子",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_clothes_022"
+    ],
+    "notes": "三叶草刺绣logo+320g毛圈棉+落肩宽松藏肚+连帽卫衣→adidas Originals卫衣",
+    "id": "q226"
+  },
+  {
+    "query": "想要一条夏天能晨跑也能当睡裤的短裤，运动后十分钟左右散汗，口袋能放手机钥匙不容易掉，浅色发黄也能清洗",
+    "query_type": "functional_scene",
+    "relevant_product_ids": [
+      "p_clothes_023"
+    ],
+    "notes": "DRY速干短裤+10分钟散汗+口袋收纳+居家睡裤/晨跑两用+浅色清洁→优衣库运动短裤",
+    "id": "q227"
+  },
+  {
+    "query": "户外攀爬想买软壳裤，深蹲跨步不卡裆，侧袋要带拉链，细雨泥点能防泼水；冬天很冷我可以另加保暖内层",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_clothes_017"
+    ],
+    "notes": "Fortius弹力软壳+DWR防泼水+攀爬深蹲不卡裆+拉链侧袋+冬季需叠保暖层→始祖鸟Gamma长裤",
+    "id": "q228"
+  },
+  {
+    "query": "我主力用华为手机，想买台14寸轻薄本，能碰一下互传大文件、多屏协同接力编辑，还要触控屏能手写批注文档",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_digital_004"
+    ],
+    "notes": "华为生态+鸿蒙跨端协同+2K触控屏+手写批注+14寸轻薄本→华为MateBook 14鸿蒙版",
+    "id": "q229"
+  },
+  {
+    "query": "我用小米手机，上网课想平板一边放课程一边记笔记查资料，12英寸左右高刷屏，预算三千多，外出没有WiFi时能连手机热点就行",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_digital_011"
+    ],
+    "notes": "小米生态跨屏互联+12.1英寸高刷+多窗口上课笔记+仅Wi-Fi外出连热点+三千多→小米平板8 Pro",
+    "id": "q230"
+  },
+  {
+    "query": "经常在会议室和高铁上看PDF做批注，想要13英寸左右的大屏平板，比11寸分屏从容，但不准备用它做重度视频渲染或大型代码编译",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_digital_021"
+    ],
+    "notes": "13.2英寸大屏+会议PDF批注/轻办公+排除重度渲染编译→华为MatePad Pro 13.2",
+    "id": "q231"
+  },
+  {
+    "query": "影视后期主力机要能同时跑PR剪4K、AE做动态特效，最好16英寸、32GB内存、1TB起步，外出剪片续航也要顶",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_digital_012"
+    ],
+    "notes": "PR/AE重度后期+16英寸+32GB/1TB+长续航创意工作站→MacBook Pro 16 M5 Pro",
+    "id": "q232"
+  },
+  {
+    "query": "咨询顾问经常跑客户，想要1.1kg左右商务本，能自动整理会议纪要、生成汇报初稿，最好雾面屏强光下也看得清，还能接U盘和旧投影",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_digital_022"
+    ],
+    "notes": "1.1kg高端商务+Aura AI会议纪要/汇报+强光雾面屏+旧投影和USB-A接口→ThinkPad X1 Carbon Aura",
+    "id": "q233"
+  },
+  {
+    "query": "预算7000左右想买学习办公本，屏幕要2.8K 120Hz且修图色彩准，接口全一点不用拓展坞，偶尔轻剪4K素材也能扛",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_digital_023"
+    ],
+    "notes": "7000左右+2.8K 120Hz高色域+全接口+轻剪4K/学习办公→联想ThinkBook 14+",
+    "id": "q234"
+  },
+  {
+    "query": "美术生想买13英寸iPad画大幅插画和看设计稿，XDR屏阳光下也要看清暗部细节，主要用Wi-Fi版，不需要插卡",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_digital_013",
+      "p_digital_024"
+    ],
+    "notes": "13英寸iPad Pro+专业绘图/XDR或桌面级性能+Wi-Fi版+设计稿暗部细节→iPad Pro M5/M4",
+    "id": "q235"
+  },
+  {
+    "query": "学生党想买轻薄平板上网课和手写笔记，11英寸就行，二代Apple Pencil延迟要低，128GB够用但我不需要蜂窝版打电话",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_digital_025"
+    ],
+    "notes": "11英寸轻薄+二代Apple Pencil+上网课记笔记+128GB+排除蜂窝打电话误解→iPad Air 11",
+    "id": "q236"
+  },
+  {
+    "query": "想要一台折叠屏，展开后能同时开微信、文档和会议界面，还能半悬停放桌上看视频，内屏我不会乱贴普通钢化膜",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_digital_014"
+    ],
+    "notes": "折叠屏多窗口+半悬停看视频+内屏柔性屏避免普通钢化膜→OPPO Find N6",
+    "id": "q237"
+  },
+  {
+    "query": "三千多想换个轻薄手机，主要拍夜市合照和咖啡馆人像，不想额外补光，午休快充十分钟下午还能继续刷社交软件",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_digital_016"
+    ],
+    "notes": "三千多+轻薄人像+原生柔光环暗光拍照+快充10分钟→OPPO Reno 16 Pro",
+    "id": "q238"
+  },
+  {
+    "query": "想买华为拍照旗舰，夜市人像不用补光灯，爬山拍日出也要稳，曲面屏轻一点，12+512G方便存很多照片",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_digital_002"
+    ],
+    "notes": "华为超感光影像+夜景人像/日出+轻薄曲面屏+12+512G存储→HUAWEI Pura 90 Pro",
+    "id": "q239"
+  },
+  {
+    "query": "宿舍里想买一台大屏手机刷4K剧和玩原神，最好7英寸、6800mAh大电池、120W快充，单手握持累一点我能接受",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_digital_009"
+    ],
+    "notes": "7英寸大屏+4K影音/大型手游+6800mAh+120W快充+接受单手负担→小米17 Max",
+    "id": "q240"
+  },
+  {
+    "query": "跑步时想少看手表，耳机能测心率并同步到苹果健康，地铁通勤降噪也要强，但洗澡游泳我会摘下来",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_digital_018"
+    ],
+    "notes": "耳腔心率监测+同步苹果健康+主动降噪+运动佩戴+洗澡游泳禁用→AirPods Pro 3",
+    "id": "q241"
+  },
+  {
+    "query": "华为手机用户想买降噪耳机，通勤和办公室都要安静，最好有高解析音质，第一次佩戴能在智慧生活里做贴合度检测",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_digital_007"
+    ],
+    "notes": "华为生态+55dB主动降噪+Hi-Res高解析音质+智慧生活贴合度检测→FreeBuds Pro 5",
+    "id": "q242"
+  },
+  {
+    "query": "想给家里囤每日坚果，每天出门抓一袋25g，最好4种坚果加2种果干，没有额外加盐加糖，也不要用花生凑重量",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_food_019"
+    ],
+    "notes": "25g每日小袋+4种坚果2种果干+无盐无糖+评论提到无花生凑数→百草味每日坚果A款",
+    "id": "q243"
+  },
+  {
+    "query": "早八早餐想买常温酸奶，口感要浓稠能做酸奶碗，3岁以上小朋友也能喝，不想要靠防腐剂长期保存的那种",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_food_017"
+    ],
+    "notes": "常温希腊风味酸奶+浓稠可做酸奶碗+3岁以上儿童+无防腐剂→伊利安慕希",
+    "id": "q244"
+  },
+  {
+    "query": "家里小学生早上配面包喝，想买乳蛋白3.6g/100ml左右的常温纯牛奶，16盒家庭装就够，喝前温水泡一下不要直接微波炉",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_food_016"
+    ],
+    "notes": "3.6g乳蛋白+常温纯牛奶+250ml×16家庭装+温水加热注意→蒙牛特仑苏",
+    "id": "q245"
+  },
+  {
+    "query": "家里常做红烧肉和卤猪脚，想要上色红亮不发苦的老抽，最好有草菇鲜味，开封后我会冷藏，不拿来直接做凉拌蘸料",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_food_018"
+    ],
+    "notes": "红烧卤味上色+草菇浸出液+开封冷藏+排除凉拌生食→李锦记草菇老抽",
+    "id": "q246"
+  },
+  {
+    "query": "想买一大瓶生抽做白切鸡蘸料、凉拌黄瓜和家常小炒提鲜，家里有3岁孩子所以只少量调味，不要主要用来红烧上色的老抽",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_food_013"
+    ],
+    "notes": "蘸料/凉拌/小炒提鲜+1.9L生抽+儿童少量调味+排除老抽上色→海天金标生抽",
+    "id": "q247"
+  },
+  {
+    "query": "减脂期吃火锅想喝白葡萄味带气饮料解腻，要求0糖0脂0卡，别有明显代糖怪味，冰一下气泡要够足",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_food_024"
+    ],
+    "notes": "白葡萄味+0糖0脂0卡+赤藓糖醇代糖后味小+火锅解腻+气泡足→元气森林白葡萄气泡水",
+    "id": "q248"
+  },
+  {
+    "query": "经常跑长途和熬夜备考，想囤整箱罐装功能饮料，含牛磺酸和咖啡因能提神，但我不会睡前喝，也不是给未成年人喝",
+    "query_type": "negative_constraint",
+    "relevant_product_ids": [
+      "p_food_006"
+    ],
+    "notes": "长途/熬夜提神+250ml×24罐整箱+牛磺酸咖啡因+排除睡前和未成年人→红牛功能饮料",
+    "id": "q249"
+  },
+  {
+    "query": "露营和办公室都想喝无糖黑咖啡，能丢进矿泉水瓶摇3秒化开，也能用热牛奶冲不结块，最好没有植脂末和糖",
+    "query_type": "attribute_filter",
+    "relevant_product_ids": [
+      "p_food_022"
+    ],
+    "notes": "冷萃超即溶+矿泉水瓶摇3秒+热牛奶不结块+无糖无植脂末+露营便携→三顿半冷萃黑咖",
+    "id": "q250"
   }
 ]

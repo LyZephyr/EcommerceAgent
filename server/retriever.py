@@ -9,11 +9,17 @@ import chromadb
 from config import CHROMA_COLLECTION_NAME, CHROMA_PERSIST_DIR, TOP_K
 from embedding import get_embedding_function
 
+_VECTOR_WEIGHT = 0.75
+_MUST_TERM_WEIGHT = 0.25
+_EXCLUDE_PENALTY_BASE = 0.30
+_NEGATION_PREFIXES = ("不含", "无", "未添加", "不添加", "没有", "0", "零")
+
+_chroma_client = chromadb.PersistentClient(path=CHROMA_PERSIST_DIR)
+
 
 def retrieve(query: str, top_k: int = 5, intent: dict | None = None) -> list[dict]:
-    """对 query 做 embedding，结合意图的 metadata filter 检索，按 product_id 去重后返回 Top-K 商品。"""
-    client = chromadb.PersistentClient(path=CHROMA_PERSIST_DIR)
-    collection = client.get_collection(
+    """对 query 做 embedding，结合意图的 metadata filter 检索，返回 Top-K 商品。"""
+    collection = _chroma_client.get_collection(
         name=CHROMA_COLLECTION_NAME,
         embedding_function=get_embedding_function(),
     )
@@ -22,7 +28,7 @@ def retrieve(query: str, top_k: int = 5, intent: dict | None = None) -> list[dic
         raise RuntimeError("商品向量库为空，请先运行 `python ingest.py` 导入数据。")
 
     limit = min(top_k or TOP_K, count)
-    candidate_count = min(max(limit * 10, 30), count)
+    candidate_count = min(max(limit * 6, 30), count)
 
     search_text = query
     where_filter = None
@@ -37,7 +43,6 @@ def retrieve(query: str, top_k: int = 5, intent: dict | None = None) -> list[dic
         include=["documents", "metadatas", "distances"],
     )
 
-    # 过滤条件过严导致零结果时，去掉 filter 重试
     if not result["ids"][0] and where_filter:
         result = collection.query(
             query_texts=[search_text],
@@ -45,23 +50,21 @@ def retrieve(query: str, top_k: int = 5, intent: dict | None = None) -> list[dic
             include=["documents", "metadatas", "distances"],
         )
 
-    best: dict[str, dict] = {}
-    ids = result["ids"][0]
-    documents = result["documents"][0]
-    metadatas = result["metadatas"][0]
-    distances = result["distances"][0]
+    products = []
+    for chunk_id, document, metadata, distance in zip(
+        result["ids"][0],
+        result["documents"][0],
+        result["metadatas"][0],
+        result["distances"][0],
+        strict=True,
+    ):
+        product = dict(metadata)
+        product["product_id"] = str(metadata.get("product_id") or chunk_id)
+        product["document"] = document
+        product["distance"] = float(distance)
+        products.append(product)
 
-    for chunk_id, document, metadata, distance in zip(ids, documents, metadatas, distances, strict=True):
-        pid = str(metadata.get("product_id") or chunk_id.split("__")[0])
-        if pid not in best or distance < best[pid]["distance"]:
-            product = dict(metadata)
-            product["product_id"] = pid
-            product["document"] = document
-            product["distance"] = float(distance)
-            best[pid] = product
-
-    products = list(best.values())
-    return _rerank(query, products)[:limit]
+    return _rerank(products, intent)[:limit]
 
 
 def _build_where_filter(intent: dict) -> dict | None:
@@ -73,11 +76,11 @@ def _build_where_filter(intent: dict) -> dict | None:
 
     min_price = intent.get("min_price")
     if min_price is not None:
-        conditions.append({"price": {"$gte": float(min_price)}})
+        conditions.append({"max_price": {"$gte": float(min_price)}})
 
     max_price = intent.get("max_price")
     if max_price is not None:
-        conditions.append({"price": {"$lte": float(max_price)}})
+        conditions.append({"min_price": {"$lte": float(max_price)}})
 
     exclude_brands = intent.get("exclude_brands") or []
     if exclude_brands:
@@ -90,69 +93,105 @@ def _build_where_filter(intent: dict) -> dict | None:
     return {"$and": conditions}
 
 
-def _rerank(query: str, products: list[dict]) -> list[dict]:
-    price_target = _price_target(query)
-    return sorted(
-        products,
-        key=lambda product: (
-            _lexical_score(query, product) + _price_score(price_target, product),
-            -product["distance"],
-        ),
-        reverse=True,
+def _rerank(products: list[dict], intent: dict | None = None) -> list[dict]:
+    if not products:
+        return []
+
+    min_distance = min(product["distance"] for product in products)
+    max_distance = max(product["distance"] for product in products)
+    distance_span = max_distance - min_distance
+    must_have_terms = _string_list(intent.get("must_have_terms")) if intent else []
+    exclude_terms = _string_list(intent.get("exclude_terms")) if intent else []
+
+    for product in products:
+        if distance_span:
+            vector_score = 1.0 - ((product["distance"] - min_distance) / distance_span)
+        else:
+            vector_score = 1.0
+
+        must_score = _term_match_ratio(must_have_terms, product)
+        violation_penalty = _constraint_violation_penalty(exclude_terms, product)
+        product["rerank_score"] = (
+            _VECTOR_WEIGHT * vector_score
+            + _MUST_TERM_WEIGHT * must_score
+            - violation_penalty
+        )
+
+    return sorted(products, key=lambda product: (product["rerank_score"], -product["distance"]), reverse=True)
+
+
+def _string_list(value) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item.strip() for item in value if isinstance(item, str) and item.strip()]
+
+
+def _term_match_ratio(terms: list[str], product: dict) -> float:
+    if not terms:
+        return 0.0
+
+    haystack = _normalized_text(
+        " ".join(
+            str(product.get(key, ""))
+            for key in ("title", "brand", "category", "sub_category", "document")
+        )
+    )
+    hit_count = sum(1 for term in terms if _normalized_text(term) in haystack)
+    return hit_count / len(terms)
+
+
+def _constraint_violation_penalty(terms: list[str], product: dict) -> float:
+    terms = _exclude_terms(terms)
+    if not terms:
+        return 0.0
+
+    searchable_text = _normalized_text(
+        " ".join(
+            str(product.get(key, ""))
+            for key in ("title", "brand", "sub_category", "category", "document")
+        )
     )
 
-
-def _lexical_score(query: str, product: dict) -> float:
-    haystack = " ".join(
-        str(product.get(key, ""))
-        for key in ("title", "brand", "category", "sub_category", "document")
-    ).lower()
-    score = 0.0
-    for term in _terms(query):
-        if term in haystack:
-            score += 2.0 if len(term) > 1 else 0.2
-    return score
-
-
-def _terms(text: str) -> set[str]:
-    normalized = text.lower()
-    terms = set(re.findall(r"[a-z0-9]+|[\u4e00-\u9fff]{2,}", normalized))
-    chinese_chars = re.findall(r"[\u4e00-\u9fff]", normalized)
-    terms.update(
-        "".join(chinese_chars[index : index + size])
-        for size in (2, 3)
-        for index in range(max(len(chinese_chars) - size + 1, 0))
+    hit_count = sum(
+        1 for term in terms
+        if _has_unprotected_match(searchable_text, _normalized_text(term))
     )
-    return terms
 
-
-def _price_target(query: str) -> float | None:
-    match = re.search(r"(\d+(?:\.\d+)?)\s*(万|千|元|块)", query)
-    if match:
-        value = float(match.group(1))
-        unit = match.group(2)
-        if unit == "万":
-            return value * 10000
-        if unit == "千":
-            return value * 1000
-        return value
-
-    chinese_numbers = {
-        "一": 1, "两": 2, "二": 2, "三": 3, "四": 4,
-        "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10,
-    }
-    match = re.search(r"([一两二三四五六七八九十])\s*(万|千)", query)
-    if not match:
-        return None
-    value = chinese_numbers[match.group(1)]
-    return float(value * (10000 if match.group(2) == "万" else 1000))
-
-
-def _price_score(price_target: float | None, product: dict) -> float:
-    if price_target is None:
+    if hit_count == 0:
         return 0.0
-    price = float(product.get("price") or 0)
-    if price <= 0:
-        return 0.0
-    difference_ratio = abs(price - price_target) / max(price_target, 1.0)
-    return max(0.0, 3.0 * (1.0 - difference_ratio))
+    return sum(_EXCLUDE_PENALTY_BASE ** i for i in range(1, hit_count + 1))
+
+
+def _exclude_terms(terms: list[str]) -> list[str]:
+    return [term for term in terms if _is_valid_exclude_term(term)]
+
+
+def _is_valid_exclude_term(term: str) -> bool:
+    normalized = _normalized_text(term)
+    if not normalized:
+        return False
+    if re.fullmatch(r"[\u4e00-\u9fff]", normalized):
+        return False
+    return len(normalized) >= 2
+
+
+def _has_unprotected_match(text: str, term: str) -> bool:
+    start = 0
+    while True:
+        index = text.find(term, start)
+        if index == -1:
+            return False
+        if not _has_negation_prefix(text, index, term):
+            return True
+        start = index + len(term)
+
+
+def _has_negation_prefix(text: str, term_index: int, term: str) -> bool:
+    if term.startswith("含") and term_index > 0 and text[term_index - 1] == "不":
+        return True
+    prefix_window = text[max(0, term_index - 8) : term_index]
+    return any(prefix in prefix_window for prefix in _NEGATION_PREFIXES)
+
+
+def _normalized_text(text: str) -> str:
+    return re.sub(r"\s+", "", text.lower())

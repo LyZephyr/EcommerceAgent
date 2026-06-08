@@ -1,4 +1,4 @@
-"""数据导入脚本：读取商品 JSON，按语义分 chunk 向量化后写入 ChromaDB。"""
+"""数据导入脚本：读取商品 JSON，构建 embedding 文本与完整文档后写入 ChromaDB。"""
 
 from __future__ import annotations
 
@@ -9,6 +9,11 @@ import chromadb
 
 from config import CHROMA_COLLECTION_NAME, CHROMA_PERSIST_DIR, DATASET_DIR
 from embedding import get_embedding_function
+
+_FAQ_MAX_ITEMS = 5
+_FAQ_TRUNCATE_LEN = 30
+_REVIEW_MAX_ITEMS = 5
+_REVIEW_TRUNCATE_LEN = 50
 
 
 def load_products(dataset_dir: str) -> list[dict]:
@@ -23,61 +28,38 @@ def load_products(dataset_dir: str) -> list[dict]:
     return products
 
 
-def build_chunks(product: dict) -> list[dict]:
-    """为一个商品生成多个语义 chunk，每个 chunk 带商品基本信息前缀。
+def build_embedding_text(product: dict) -> str:
+    """为商品构建用于向量化的紧凑文本，控制在 512 token 以内。
 
-    返回 list[{"chunk_id": str, "embedding_text": str, "chunk_type": str}]。
-    - core: 标题 + 品牌 + 类目 + 价格 + 卖点 + SKU 属性
-    - faq: 标题前缀 + 官方问答
-    - review: 标题前缀 + 用户评价
+    包含：标题 + 品牌 + 类目 + 价格 + 卖点 + FAQ 问题摘要 + 评价摘要。
     """
     knowledge = product.get("rag_knowledge") or {}
-    product_id = product["product_id"]
-    prefix = _build_prefix(product)
-
-    chunks = []
-
-    # Chunk 1: 核心卖点（始终存在）
-    core_parts = [
-        prefix,
+    parts = [
+        _build_prefix(product),
         f"价格：{product.get('base_price', '')}元",
     ]
+
     marketing = knowledge.get("marketing_description", "")
     if marketing:
-        core_parts.append(f"卖点：{marketing}")
-    sku_text = _build_sku_text(product)
-    if sku_text:
-        core_parts.append(f"SKU：{sku_text}")
-    chunks.append({
-        "chunk_id": f"{product_id}__core",
-        "embedding_text": "\n".join(core_parts),
-        "chunk_type": "core",
-    })
+        parts.append(f"卖点：{marketing}")
 
-    # Chunk 2: FAQ（如果存在）
     faq_items = knowledge.get("official_faq", [])
     if faq_items:
-        faq_lines = [f"问：{item.get('question', '')} 答：{item.get('answer', '')}" for item in faq_items]
-        chunks.append({
-            "chunk_id": f"{product_id}__faq",
-            "embedding_text": f"{prefix}\n官方问答：\n" + "\n".join(faq_lines),
-            "chunk_type": "faq",
-        })
+        faq_lines = [
+            f"问：{item.get('question', '')[:_FAQ_TRUNCATE_LEN]}"
+            for item in faq_items[:_FAQ_MAX_ITEMS]
+        ]
+        parts.append("官方问答：" + " ".join(faq_lines))
 
-    # Chunk 3: 用户评价（如果存在）
     reviews = knowledge.get("user_reviews", [])
     if reviews:
         review_lines = [
-            f"{r.get('nickname', '用户')}评分{r.get('rating', '')}：{r.get('content', '')}"
-            for r in reviews
+            r.get("content", "")[:_REVIEW_TRUNCATE_LEN]
+            for r in reviews[:_REVIEW_MAX_ITEMS]
         ]
-        chunks.append({
-            "chunk_id": f"{product_id}__review",
-            "embedding_text": f"{prefix}\n用户评价：\n" + "\n".join(review_lines),
-            "chunk_type": "review",
-        })
+        parts.append("用户评价：" + " ".join(review_lines))
 
-    return chunks
+    return "\n".join(parts)
 
 
 def build_full_document(product: dict) -> str:
@@ -116,7 +98,7 @@ def build_full_document(product: dict) -> str:
 
 
 def ingest(dataset_dir: str | None = None):
-    """主入口：加载数据 → 分 chunk → embedding → 写入 ChromaDB。"""
+    """主入口：加载数据 → 构建 embedding 文本 → 写入 ChromaDB。"""
     products = load_products(dataset_dir or DATASET_DIR)
     if not products:
         raise RuntimeError(f"未在数据集目录中找到商品 JSON：{dataset_dir or DATASET_DIR}")
@@ -133,9 +115,6 @@ def ingest(dataset_dir: str | None = None):
         metadata={"description": "Ecommerce product RAG collection"},
     )
 
-    full_docs_map = {p["product_id"]: build_full_document(p) for p in products}
-    metadata_map = {p["product_id"]: _metadata(p) for p in products}
-
     all_ids: list[str] = []
     all_embedding_texts: list[str] = []
     all_documents: list[str] = []
@@ -143,15 +122,10 @@ def ingest(dataset_dir: str | None = None):
 
     for product in products:
         pid = product["product_id"]
-        chunks = build_chunks(product)
-        full_doc = full_docs_map[pid]
-        meta = metadata_map[pid]
-
-        for chunk in chunks:
-            all_ids.append(chunk["chunk_id"])
-            all_embedding_texts.append(chunk["embedding_text"])
-            all_documents.append(full_doc)
-            all_metadatas.append({**meta, "chunk_type": chunk["chunk_type"]})
+        all_ids.append(pid)
+        all_embedding_texts.append(build_embedding_text(product))
+        all_documents.append(build_full_document(product))
+        all_metadatas.append(_metadata(product))
 
     embeddings = ef(all_embedding_texts)
     collection.add(
@@ -160,7 +134,7 @@ def ingest(dataset_dir: str | None = None):
         documents=all_documents,
         metadatas=all_metadatas,
     )
-    print(f"已导入 {len(products)} 个商品（{len(all_ids)} 个 chunk）到 ChromaDB collection：{CHROMA_COLLECTION_NAME}")
+    print(f"已导入 {len(products)} 个商品到 ChromaDB collection：{CHROMA_COLLECTION_NAME}")
 
 
 def _build_prefix(product: dict) -> str:
