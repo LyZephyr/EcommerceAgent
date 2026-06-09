@@ -12,6 +12,8 @@ data class Message(
     val role: MessageRole,
     val content: String,
     val products: List<Product> = emptyList(),
+    val compareTables: List<CompareTable> = emptyList(),
+    val status: String? = null,
     val isStreaming: Boolean = false,
     val isError: Boolean = false
 )

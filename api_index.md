@@ -234,3 +234,13 @@ server/.venv/bin/python eval/run_saved_intent_vector_eval.py --vector-only
 | `app/build.gradle.kts` | OkHttp、OkHttp SSE、Coil Compose、Lifecycle ViewModel Compose、Material Icons Extended | 客户端依赖 |
 | `AndroidManifest.xml` | `INTERNET`, `usesCleartextTraffic=true` | 网络权限 |
 | `gradle.properties` | `kotlin.compiler.execution.strategy=in-process` | Kotlin daemon 配置 |
+## Android client compare display extension
+
+| Type / member | Signature | Description |
+|---------------|-----------|-------------|
+| `CompareTable` | `products: List<CompareProduct>`, `rows: List<CompareRow>` | Client model for `compare` SSE table payloads. |
+| `Message.compareTables` | `List<CompareTable>` | Structured comparison tables attached to an assistant message. |
+| `Message.status` | `String?` | Current streaming status text from backend `status` events. |
+| `ChatEvent.Status` | `message: String` | Parsed backend `status` SSE event. |
+| `ChatEvent.Compare` | `table: CompareTable` | Parsed backend `compare` SSE event. |
+| `CompareTableCard` | `(table: CompareTable)` | Compose renderer for comparison tables inside the message stream. |

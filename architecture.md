@@ -175,3 +175,6 @@ ChatScreen 渲染消息气泡、商品卡片、图片和详情弹窗
 | Android 网络 | OkHttp + OkHttp SSE EventSource |
 | Android 图片 | Coil Compose |
 | Android 配置 | Gradle Version Catalog + BuildConfig.API_BASE_URL |
+## Android compare display extension
+
+The Android client parses backend `compare` SSE events into `CompareTable` models, stores them on the active assistant `Message`, and renders comparison tables inline before the existing flat product-card list. Combination recommendations continue to use the existing ungrouped horizontal product cards.

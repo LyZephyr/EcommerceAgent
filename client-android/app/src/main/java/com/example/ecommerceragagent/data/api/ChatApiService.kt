@@ -1,6 +1,9 @@
 package com.example.ecommerceragagent.data.api
 
 import com.example.ecommerceragagent.BuildConfig
+import com.example.ecommerceragagent.data.model.CompareProduct
+import com.example.ecommerceragagent.data.model.CompareRow
+import com.example.ecommerceragagent.data.model.CompareTable
 import com.example.ecommerceragagent.data.model.Product
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -52,10 +55,16 @@ class ChatApiService(
                     data: String
                 ) {
                     when (type) {
+                        "status" -> trySend(ChatEvent.Status(JSONObject(data).getString("message")))
                         "product" -> trySend(ChatEvent.ProductFound(parseProduct(data)))
+                        "compare" -> trySend(ChatEvent.Compare(parseCompareTable(data)))
                         "token" -> trySend(ChatEvent.Token(JSONObject(data).getString("content")))
                         "done" -> {
                             trySend(ChatEvent.Done)
+                            close()
+                        }
+                        "error" -> {
+                            trySend(ChatEvent.Error(JSONObject(data).getString("message")))
                             close()
                         }
                     }
@@ -79,6 +88,43 @@ class ChatApiService(
         )
 
         awaitClose { eventSource.cancel() }
+    }
+
+    private fun parseCompareTable(data: String): CompareTable {
+        val json = JSONObject(data)
+        val productsJson = json.getJSONArray("products")
+        val products = buildList {
+            for (index in 0 until productsJson.length()) {
+                val productJson = productsJson.getJSONObject(index)
+                add(
+                    CompareProduct(
+                        productId = productJson.getString("product_id"),
+                        title = productJson.getString("title")
+                    )
+                )
+            }
+        }
+
+        val rowsJson = json.getJSONArray("rows")
+        val rows = buildList {
+            for (index in 0 until rowsJson.length()) {
+                val rowJson = rowsJson.getJSONObject(index)
+                val valuesJson = rowJson.getJSONObject("values")
+                val values = buildMap {
+                    valuesJson.keys().forEach { productId ->
+                        put(productId, valuesJson.optString(productId))
+                    }
+                }
+                add(
+                    CompareRow(
+                        dimension = rowJson.getString("dimension"),
+                        values = values
+                    )
+                )
+            }
+        }
+
+        return CompareTable(products = products, rows = rows)
     }
 
     private fun parseProduct(data: String): Product {

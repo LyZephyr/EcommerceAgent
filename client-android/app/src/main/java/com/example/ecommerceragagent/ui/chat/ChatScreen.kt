@@ -1,15 +1,19 @@
 package com.example.ecommerceragagent.ui.chat
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -17,12 +21,14 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -55,9 +61,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.example.ecommerceragagent.data.model.CompareTable
 import com.example.ecommerceragagent.data.model.Message
 import com.example.ecommerceragagent.data.model.MessageRole
 import com.example.ecommerceragagent.data.model.Product
@@ -170,6 +178,17 @@ private fun MessageItem(
         horizontalAlignment = alignment
     ) {
         MessageBubble(message = message)
+        if (message.compareTables.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                message.compareTables.forEach { table ->
+                    CompareTableCard(table = table)
+                }
+            }
+        }
         if (message.products.isNotEmpty()) {
             Spacer(modifier = Modifier.height(8.dp))
             LazyRow(
@@ -218,6 +237,7 @@ private fun MessageBubble(message: Message) {
     ) {
         val text = when {
             message.content.isNotBlank() -> message.content
+            message.status != null -> message.status
             message.isStreaming -> "正在整理推荐..."
             else -> ""
         }
@@ -225,6 +245,113 @@ private fun MessageBubble(message: Message) {
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
             text = text,
             style = MaterialTheme.typography.bodyLarge
+        )
+    }
+}
+
+@Composable
+private fun CompareTableCard(table: CompareTable) {
+    if (table.products.isEmpty() || table.rows.isEmpty()) {
+        return
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                text = "商品对比",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+            ) {
+                CompareHeaderRow(table = table)
+                table.rows.forEach { row ->
+                    CompareBodyRow(table = table, dimension = row.dimension, values = row.values)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CompareHeaderRow(table: CompareTable) {
+    Row(modifier = Modifier.height(IntrinsicSize.Min)) {
+        CompareCell(
+            text = "维度",
+            width = 88.dp,
+            isHeader = true
+        )
+        table.products.forEach { product ->
+            CompareCell(
+                text = product.title,
+                width = 150.dp,
+                isHeader = true
+            )
+        }
+    }
+}
+
+@Composable
+private fun CompareBodyRow(
+    table: CompareTable,
+    dimension: String,
+    values: Map<String, String>
+) {
+    Row(modifier = Modifier.height(IntrinsicSize.Min)) {
+        CompareCell(
+            text = dimension,
+            width = 88.dp,
+            isHeader = true
+        )
+        table.products.forEach { product ->
+            CompareCell(
+                text = values[product.productId].orEmpty().ifBlank { "-" },
+                width = 150.dp
+            )
+        }
+    }
+}
+
+@Composable
+private fun CompareCell(
+    text: String,
+    width: Dp,
+    isHeader: Boolean = false
+) {
+    val background = if (isHeader) {
+        MaterialTheme.colorScheme.surfaceVariant
+    } else {
+        MaterialTheme.colorScheme.surface
+    }
+    val textColor = if (isHeader) {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    } else {
+        MaterialTheme.colorScheme.onSurface
+    }
+
+    Box(
+        modifier = Modifier
+            .width(width)
+            .fillMaxHeight()
+            .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
+            .background(background)
+            .padding(horizontal = 8.dp, vertical = 8.dp)
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = if (isHeader) FontWeight.SemiBold else FontWeight.Normal,
+            color = textColor
         )
     }
 }

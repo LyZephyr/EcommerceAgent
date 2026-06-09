@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.ecommerceragagent.data.api.ChatApiService
 import com.example.ecommerceragagent.data.api.ChatEvent
+import com.example.ecommerceragagent.data.model.CompareTable
 import com.example.ecommerceragagent.data.model.Message
 import com.example.ecommerceragagent.data.model.MessageRole
 import com.example.ecommerceragagent.data.model.Product
@@ -58,7 +59,9 @@ class ChatViewModel(
         activeJob = viewModelScope.launch {
             apiService.streamChat(trimmed, _uiState.value.conversationId).collect { event ->
                 when (event) {
+                    is ChatEvent.Status -> updateStatus(assistantMessage.id, event.message)
                     is ChatEvent.ProductFound -> appendProduct(assistantMessage.id, event.product)
+                    is ChatEvent.Compare -> appendCompareTable(assistantMessage.id, event.table)
                     is ChatEvent.Token -> appendToken(assistantMessage.id, event.content)
                     ChatEvent.Done -> finishStreaming(assistantMessage.id)
                     is ChatEvent.Error -> showError(assistantMessage.id, event.message)
@@ -99,9 +102,21 @@ class ChatViewModel(
         }
     }
 
+    private fun appendCompareTable(messageId: String, table: CompareTable) {
+        updateMessage(messageId) { message ->
+            message.copy(compareTables = message.compareTables + table)
+        }
+    }
+
     private fun appendToken(messageId: String, token: String) {
         updateMessage(messageId) { message ->
-            message.copy(content = message.content + token)
+            message.copy(content = message.content + token, status = null)
+        }
+    }
+
+    private fun updateStatus(messageId: String, status: String) {
+        updateMessage(messageId) { message ->
+            message.copy(status = status)
         }
     }
 
