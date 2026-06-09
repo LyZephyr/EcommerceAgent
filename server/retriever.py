@@ -9,10 +9,12 @@ import chromadb
 from config import CHROMA_COLLECTION_NAME, CHROMA_PERSIST_DIR, TOP_K
 from embedding import get_embedding_function
 
-_VECTOR_WEIGHT = 0.75
-_MUST_TERM_WEIGHT = 0.25
-_EXCLUDE_PENALTY_BASE = 0.30
-_NEGATION_PREFIXES = ("不含", "无", "未添加", "不添加", "没有", "0", "零")
+_VECTOR_WEIGHT = 0.7
+_MUST_TERM_WEIGHT = 0.3
+_EXCLUDE_DOCUMENT_PENALTY_BASE = 0.25
+_EXCLUDE_REVIEW_PENALTY_BASE = 0.15
+_NEGATION_PREFIXES = ("无", "未", "非", "没", "0", "零", "不")
+_USER_REVIEW_SECTION_MARKER = "\n用户评价:"
 
 _chroma_client = chromadb.PersistentClient(path=CHROMA_PERSIST_DIR)
 
@@ -117,7 +119,11 @@ def _rerank(products: list[dict], intent: dict | None = None) -> list[dict]:
             - violation_penalty
         )
 
-    return sorted(products, key=lambda product: (product["rerank_score"], -product["distance"]), reverse=True)
+    return sorted(
+        products,
+        key=lambda product: (product["rerank_score"], -product["distance"]),
+        reverse=True,
+    )
 
 
 def _string_list(value) -> list[str]:
@@ -141,38 +147,47 @@ def _term_match_ratio(terms: list[str], product: dict) -> float:
 
 
 def _constraint_violation_penalty(terms: list[str], product: dict) -> float:
-    terms = _exclude_terms(terms)
     if not terms:
         return 0.0
 
-    searchable_text = _normalized_text(
+    product_document, review_document = _split_review_document(str(product.get("document", "")))
+    product_text = _normalized_text(
         " ".join(
             str(product.get(key, ""))
-            for key in ("title", "brand", "sub_category", "category", "document")
+            for key in ("title", "brand", "sub_category", "category")
         )
+        + " "
+        + product_document
+    )
+    review_text = _normalized_text(review_document)
+
+    product_hit_count = _unprotected_hit_count(terms, product_text)
+    review_hit_count = _unprotected_hit_count(terms, review_text)
+    return _decayed_penalty(
+        product_hit_count,
+        _EXCLUDE_DOCUMENT_PENALTY_BASE,
+    ) + _decayed_penalty(review_hit_count, _EXCLUDE_REVIEW_PENALTY_BASE)
+
+
+def _split_review_document(document: str) -> tuple[str, str]:
+    product_document, marker, review_document = document.partition(_USER_REVIEW_SECTION_MARKER)
+    if not marker:
+        return document, ""
+    return product_document, review_document
+
+
+def _unprotected_hit_count(terms: list[str], text: str) -> int:
+    return sum(
+        1
+        for term in terms
+        if _has_unprotected_match(text, _normalized_text(term))
     )
 
-    hit_count = sum(
-        1 for term in terms
-        if _has_unprotected_match(searchable_text, _normalized_text(term))
-    )
 
+def _decayed_penalty(hit_count: int, base: float) -> float:
     if hit_count == 0:
         return 0.0
-    return sum(_EXCLUDE_PENALTY_BASE ** i for i in range(1, hit_count + 1))
-
-
-def _exclude_terms(terms: list[str]) -> list[str]:
-    return [term for term in terms if _is_valid_exclude_term(term)]
-
-
-def _is_valid_exclude_term(term: str) -> bool:
-    normalized = _normalized_text(term)
-    if not normalized:
-        return False
-    if re.fullmatch(r"[\u4e00-\u9fff]", normalized):
-        return False
-    return len(normalized) >= 2
+    return sum(base ** i for i in range(1, hit_count + 1))
 
 
 def _has_unprotected_match(text: str, term: str) -> bool:

@@ -58,7 +58,7 @@
 
 | 函数 | 签名 | 说明 |
 |------|------|------|
-| `retrieve` | `(query: str, top_k: int = 5, intent: dict \| None = None) -> list[dict]` | 基于 intent 做 metadata filter + 向量检索，结合 `distance`、`must_have_terms`、`exclude_terms` 加权重排返回 Top-K 商品 |
+| `retrieve` | `(query: str, top_k: int = 5, intent: dict \| None = None) -> list[dict]` | 基于 intent 做 metadata filter + 向量检索，结合 `distance`、`must_have_terms`、`exclude_terms` 加权重排返回 Top-K 商品；exclude 违规分对商品正文/元数据和用户评论分别使用 0.25、0.15 的指数衰减惩罚 |
 
 ### embedding.py
 
@@ -106,8 +106,11 @@ server/.venv/bin/python eval/run_retrieval_eval.py --limit 10
 server/.venv/bin/python eval/run_retrieval_eval.py --top-k 10
 HF_HUB_OFFLINE=1 server/.venv/bin/python eval/run_retrieval_eval.py
 
-# 复用已有报告中的 search_text/where_filter，不再调用 LLM，重新跑纯向量距离排序
+# 复用已有报告中的 search_text/where_filter/intent，不再调用 LLM，重新跑检索 + rerank
 server/.venv/bin/python eval/run_saved_intent_vector_eval.py
+
+# 仅复用 search_text/where_filter，按纯向量距离排序（不调 rerank，作基线对比）
+server/.venv/bin/python eval/run_saved_intent_vector_eval.py --vector-only
 ```
 
 **输出指标**：
@@ -121,7 +124,7 @@ server/.venv/bin/python eval/run_saved_intent_vector_eval.py
 
 默认 K 读取 `server/config.py` 中的 `TOP_K`，也可通过 `--top-k` 覆盖。完整报告写入 `eval/reports/retrieval_eval_top{K}_with_intent_{timestamp}.json`（带意图）或 `eval/reports/retrieval_eval_top{K}_{timestamp}.json`（`--no-intent`），包含整体分数、逐 query 命中详情及解析出的 intent。
 带意图评估的逐 query 详情还会输出 `search_text`（实际送入向量检索的改写文本）、`where_filter`（实际使用的 ChromaDB metadata filter）、`must_have_terms`、`exclude_terms` 和商品 `rerank_score`，用于排查意图改写、结构化过滤和重排是否导致召回偏移。
-`eval/run_saved_intent_vector_eval.py` 默认读取 `eval/reports/retrieval_eval_top5_with_intent.json` 中已缓存的 `search_text` 和 `where_filter`，直接查询 ChromaDB 并按向量距离排序，报告写入 `eval/reports/retrieval_eval_top{K}_saved_intent_vector_{timestamp}.json`。
+`eval/run_saved_intent_vector_eval.py` 默认读取 `eval/reports/retrieval_eval_top5_with_intent.json` 中已缓存的 `search_text`、`where_filter` 和 `intent`，查询 ChromaDB 后调用 `server/retriever.py` 的 `_rerank()` 重排，报告写入 `eval/reports/retrieval_eval_top{K}_saved_intent_rerank_{timestamp}.json`。加 `--vector-only` 时跳过 rerank，仅按向量距离排序，报告写入 `eval/reports/retrieval_eval_top{K}_saved_intent_vector_{timestamp}.json`。
 如果当前环境禁止访问 Hugging Face，但 embedding 模型已经存在本地缓存，可使用 `HF_HUB_OFFLINE=1` 强制离线加载。
 
 ---

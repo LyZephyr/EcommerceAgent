@@ -48,7 +48,7 @@
 - 接收用户 query 和 intent，用 rewritten_query 做向量检索
 - 结合 category / SKU 价格范围 / brand 的 ChromaDB metadata filter
 - 用向量距离、must_have_terms 命中率和 exclude_terms 违规分加权重排
-- exclude_terms 采用指数衰减惩罚（0.3^n），并保护"无/不含/未添加"等否定上下文
+- exclude_terms 对商品正文/元数据和用户评论分段采用指数衰减惩罚（正文 0.25^n，评论 0.15^n），并保护"无/不/未/非/没"等否定上下文
 - 返回 Top-K 商品信息
 
 ### server/generator.py
