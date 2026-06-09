@@ -31,46 +31,95 @@
 
 | event | data 结构 | 说明 |
 |-------|-----------|------|
-| `product` | `{"product_id": "...", "title": "...", "brand": "...", "category": "...", "sub_category": "...", "price": 99.0, "image_url": "..."}` | LLM 明确推荐的商品卡片，在解析 `<R>` 标记后、文本 token 之前发送 |
-| `token` | `{"content": "这款"}` | LLM 生成的文本片段，逐 token 发送 |
+| `status` | `{"message": "正在检索商品..."}` | Agent 正在执行工具调用，仅工具调用时发送 |
+| `product` | `{"product_id": "...", "title": "...", "brand": "...", "category": "...", "sub_category": "...", "price": 99.0, "image_url": "..."}` | LLM 明确推荐的商品卡片 |
+| `compare` | `{"products": [{"product_id": "...", "title": "..."}], "rows": [{"dimension": "价格", "values": {"product_id": "..."}}]}` | 多商品对比表数据，仅对比决策场景发送 |
+| `token` | `{"content": "这款"}` | LLM 生成的文本片段 |
 | `done` | `{}` | 流结束标记 |
 
 ---
 
 ## 后端内部模块
 
-### ingest.py
+### agent.py
+
+| 类/函数 | 签名 | 说明 |
+|---------|------|------|
+| `TokenEvent` | `@dataclass: content: str` | 文本片段事件 |
+| `ProductEvent` | `@dataclass: product_id: str, product_data: dict` | 商品推荐事件 |
+| `StatusEvent` | `@dataclass: status: str` | 状态提示事件 |
+| `CompareEvent` | `@dataclass: payload: dict` | 结构化对比事件 |
+| `run_turn` | `async (conversation_id: str, user_message: str) -> AsyncIterator[TokenEvent \| ProductEvent \| StatusEvent \| CompareEvent]` | 执行一轮对话：Phase 1 决策 + Phase 2 工具调用/生成 |
+
+### tools/\_\_init\_\_.py
 
 | 函数 | 签名 | 说明 |
 |------|------|------|
-| `load_products` | `(dataset_dir: str) -> list[dict]` | 扫描数据集目录，返回商品字典列表 |
-| `build_embedding_text` | `(product: dict) -> str` | 为商品构建紧凑的 embedding 文本（标题+品牌+类目+价格+卖点+FAQ 问题摘要+评价摘要），控制在 512 token 以内 |
-| `build_full_document` | `(product: dict) -> str` | 构建完整商品文档，存入 ChromaDB documents 字段供 LLM 阅读 |
-| `ingest` | `(dataset_dir: str \| None = None) -> None` | 主入口：加载数据 → 构建 embedding 文本 → 写入 ChromaDB |
+| `execute` | `(name: str, arguments: dict) -> list[dict]` | 按工具名分发执行 |
 
-### intent.py
+### tools/retrieve_products.py
+
+| 函数/常量 | 签名 | 说明 |
+|-----------|------|------|
+| `TOOL_DEFINITION` | `dict` | OpenAI Function Calling 格式的工具定义，参数为 `requests[]` |
+| `execute` | `(arguments: dict) -> list[dict]` | 遍历 `requests[]`，每个 request 独立调用 `retriever.retrieve()`，返回多组 Top-K 商品 |
+| `parse_intent` | `async (query: str) -> dict` | 通过强制工具调用提取单 request 检索意图（供离线评估使用） |
+
+`retrieve_products` 工具参数示例：
+
+```json
+{
+  "requests": [
+    {
+      "label": "防晒护肤",
+      "search_query": "海边 高倍 防晒 清爽 防水",
+      "category": "美妆护肤",
+      "must_have_terms": ["高倍防晒", "清爽", "防水"],
+      "exclude_terms": [],
+      "exclude_brands": []
+    },
+    {
+      "label": "度假穿搭",
+      "search_query": "度假 夏季 轻薄 透气 穿搭",
+      "category": "服饰运动",
+      "must_have_terms": ["轻薄", "透气"],
+      "exclude_terms": [],
+      "exclude_brands": []
+    }
+  ]
+}
+```
+
+工具返回多组结果，Agent 会在生成阶段保留分组上下文，但发送商品卡片时将候选商品拍平成本轮推荐池。
+
+### conversation.py
 
 | 函数 | 签名 | 说明 |
 |------|------|------|
-| `parse_intent` | `async (query: str) -> dict` | 调用 LLM 解析购物意图，返回 rewritten_query、category、价格区间、must_have_terms、exclude_terms、品牌排除等 |
+| `get_or_create_id` | `(conversation_id: str \| None) -> str` | 获取已有会话或创建新会话 |
+| `get_history` | `(conversation_id: str) -> list[dict]` | 返回对话历史（浅拷贝） |
+| `append` | `(conversation_id: str, message: dict) -> None` | 追加消息并执行滑动窗口裁剪 |
 
 ### retriever.py
 
 | 函数 | 签名 | 说明 |
 |------|------|------|
-| `retrieve` | `(query: str, top_k: int = 5, intent: dict \| None = None) -> list[dict]` | 基于 intent 做 metadata filter + 向量检索，结合 `distance`、`must_have_terms`、`exclude_terms` 加权重排返回 Top-K 商品；exclude 违规分对商品正文/元数据和用户评论分别使用 0.25、0.15 的指数衰减惩罚 |
+| `retrieve` | `(query: str, top_k: int = 5, intent: dict \| None = None) -> list[dict]` | 基于 intent 做 metadata filter + 向量检索，结合 `distance`、`must_have_terms`、`exclude_terms` 加权重排返回 Top-K 商品 |
+
+### ingest.py
+
+| 函数 | 签名 | 说明 |
+|------|------|------|
+| `load_products` | `(dataset_dir: str) -> list[dict]` | 扫描数据集目录，返回商品字典列表 |
+| `build_embedding_text` | `(product: dict) -> str` | 构建紧凑的 embedding 文本，控制在 512 token 以内 |
+| `build_full_document` | `(product: dict) -> str` | 构建完整商品文档，存入 ChromaDB documents 字段 |
+| `ingest` | `(dataset_dir: str \| None = None) -> None` | 主入口：加载数据 -> 构建 embedding 文本 -> 写入 ChromaDB |
 
 ### embedding.py
 
 | 函数/类 | 签名 | 说明 |
 |---------|------|------|
 | `get_embedding_function` | `() -> EmbeddingFunction` | 创建 ChromaDB embedding function |
-
-### generator.py
-
-| 函数 | 签名 | 说明 |
-|------|------|------|
-| `generate_stream` | `async (query: str, context: list[dict]) -> AsyncIterator[str]` | 流式调用 LLM 生成回复 |
 
 ### schemas.py
 
@@ -89,27 +138,27 @@
 
 ### eval/run_retrieval_eval.py
 
-对 Ground Truth 中每条查询调用检索链路并计算召回质量指标。默认先经 LLM 意图解析（`parse_intent`），再调用 `retrieve(query, top_k, intent)`，与线上 `/api/chat` 检索阶段一致。
+对 Ground Truth 中每条查询调用检索链路并计算召回质量指标。默认通过 `tools.retrieve_products.parse_intent` 提取单 request 意图（强制工具调用），再调用 `retrieve(query, top_k, intent)`。
 
 **命令**：
 
 ```bash
-# 带意图解析（默认），报告写入 eval/reports/retrieval_eval_top5_with_intent_{timestamp}.json
+# 带意图解析（默认）
 server/.venv/bin/python eval/run_retrieval_eval.py
 
-# 仅评估纯检索（不含 LLM 意图解析）
+# 仅评估纯检索（不含意图解析）
 server/.venv/bin/python eval/run_retrieval_eval.py --no-intent
 
-# 快速抽样（前 10 条，避免全量 LLM 调用）
+# 快速抽样
 server/.venv/bin/python eval/run_retrieval_eval.py --limit 10
 
 server/.venv/bin/python eval/run_retrieval_eval.py --top-k 10
 HF_HUB_OFFLINE=1 server/.venv/bin/python eval/run_retrieval_eval.py
 
-# 复用已有报告中的 search_text/where_filter/intent，不再调用 LLM，重新跑检索 + rerank
+# 复用已有报告中的 search_text/where_filter/intent，重新跑检索 + rerank
 server/.venv/bin/python eval/run_saved_intent_vector_eval.py
 
-# 仅复用 search_text/where_filter，按纯向量距离排序（不调 rerank，作基线对比）
+# 仅复用 search_text/where_filter，纯向量距离排序
 server/.venv/bin/python eval/run_saved_intent_vector_eval.py --vector-only
 ```
 
@@ -122,10 +171,7 @@ server/.venv/bin/python eval/run_saved_intent_vector_eval.py --vector-only
 | `Hit Rate@K` | Top-K 中是否至少命中 1 个相关商品 |
 | `Precision@K` | Top-K 中命中的相关商品数 / K |
 
-默认 K 读取 `server/config.py` 中的 `TOP_K`，也可通过 `--top-k` 覆盖。完整报告写入 `eval/reports/retrieval_eval_top{K}_with_intent_{timestamp}.json`（带意图）或 `eval/reports/retrieval_eval_top{K}_{timestamp}.json`（`--no-intent`），包含整体分数、逐 query 命中详情及解析出的 intent。
-带意图评估的逐 query 详情还会输出 `search_text`（实际送入向量检索的改写文本）、`where_filter`（实际使用的 ChromaDB metadata filter）、`must_have_terms`、`exclude_terms` 和商品 `rerank_score`，用于排查意图改写、结构化过滤和重排是否导致召回偏移。
-`eval/run_saved_intent_vector_eval.py` 默认读取 `eval/reports/retrieval_eval_top5_with_intent.json` 中已缓存的 `search_text`、`where_filter` 和 `intent`，查询 ChromaDB 后调用 `server/retriever.py` 的 `_rerank()` 重排，报告写入 `eval/reports/retrieval_eval_top{K}_saved_intent_rerank_{timestamp}.json`。加 `--vector-only` 时跳过 rerank，仅按向量距离排序，报告写入 `eval/reports/retrieval_eval_top{K}_saved_intent_vector_{timestamp}.json`。
-如果当前环境禁止访问 Hugging Face，但 embedding 模型已经存在本地缓存，可使用 `HF_HUB_OFFLINE=1` 强制离线加载。
+默认 K 读取 `server/config.py` 中的 `TOP_K`，也可通过 `--top-k` 覆盖。报告写入 `eval/reports/` 目录。
 
 ---
 
@@ -136,26 +182,26 @@ server/.venv/bin/python eval/run_saved_intent_vector_eval.py --vector-only
 | 类型 | 成员 | 说明 |
 |------|------|------|
 | `MessageRole` | `User`, `Assistant` | 消息角色枚举 |
-| `Message` | `id: String`, `role: MessageRole`, `content: String`, `products: List<Product>`, `isStreaming: Boolean`, `isError: Boolean` | 聊天消息状态，assistant 消息可携带商品卡片列表 |
+| `Message` | `id: String`, `role: MessageRole`, `content: String`, `products: List<Product>`, `isStreaming: Boolean`, `isError: Boolean` | 聊天消息状态 |
 
 ### data/model/Product.kt
 
 | 类型 | 字段 | 说明 |
 |------|------|------|
-| `Product` | `productId: String`, `title: String`, `category: String`, `price: Double`, `brand: String?`, `subCategory: String?`, `imageUrl: String?` | 客户端商品模型，与后端 `product` SSE 事件对应 |
+| `Product` | `productId: String`, `title: String`, `category: String`, `price: Double`, `brand: String?`, `subCategory: String?`, `imageUrl: String?` | 客户端商品模型 |
 
 ### data/api/ChatEvent.kt
 
 | 类型 | 成员 | 说明 |
 |------|------|------|
-| `ChatEvent` | `ProductFound(product)`, `Token(content)`, `Done`, `Error(message)` | `ChatApiService` 对 SSE 事件的客户端封装 |
+| `ChatEvent` | `ProductFound(product)`, `Token(content)`, `Done`, `Error(message)` | SSE 事件客户端封装 |
 
 ### data/api/ChatApiService.kt
 
 | 成员 | 签名 | 说明 |
 |------|------|------|
-| `ChatApiService` | `(baseUrl: String = BuildConfig.API_BASE_URL, client: OkHttpClient = ...)` | SSE API 客户端，默认连接 Gradle 注入的后端地址 |
-| `streamChat` | `(message: String, conversationId: String?) -> Flow<ChatEvent>` | POST `/api/chat`，解析 `product`、`token`、`done` 事件并以 Flow 发出 |
+| `ChatApiService` | `(baseUrl: String = BuildConfig.API_BASE_URL, client: OkHttpClient = ...)` | SSE API 客户端 |
+| `streamChat` | `(message: String, conversationId: String?) -> Flow<ChatEvent>` | POST `/api/chat`，解析事件并以 Flow 发出 |
 
 ### viewmodel/ChatViewModel.kt
 
@@ -163,34 +209,28 @@ server/.venv/bin/python eval/run_saved_intent_vector_eval.py --vector-only
 |-----------|------|------|
 | `ChatUiState` | `messages: List<Message>`, `isLoading: Boolean`, `conversationId: String` | Compose 层订阅的聊天 UI 状态 |
 | `ChatViewModel.uiState` | `StateFlow<ChatUiState>` | 只读状态流 |
-| `sendMessage` | `(text: String) -> Unit` | 追加用户消息，启动 SSE 流式请求，并把商品与 token 合并到 assistant 消息 |
-| `cancelResponse` | `() -> Unit` | 取消当前流式响应并清除 loading 状态 |
+| `sendMessage` | `(text: String) -> Unit` | 追加用户消息，启动 SSE 流式请求 |
+| `cancelResponse` | `() -> Unit` | 取消当前流式响应 |
 
 ### ui/chat/ChatScreen.kt
 
 | Composable | 签名 | 说明 |
 |------------|------|------|
-| `ChatRoute` | `(viewModel: ChatViewModel = viewModel())` | 连接 `ChatViewModel` 与聊天界面 |
-| `ChatScreen` | `(messages, isLoading, onSendMessage, onCancelResponse)` | 聊天主界面，包含顶部栏、消息列表和输入栏 |
-| `MessageItem` | `(message, onProductClick)` | 单条消息与其商品横向列表 |
-| `MessageBubble` | `(message)` | 用户/助手/错误消息气泡 |
-| `ProductCard` | `(product, onClick)` | 商品卡片，展示图片、标题、价格、品牌和类目 |
-| `ProductImage` | `(imageUrl, modifier)` | 使用 Coil 加载商品图片，无图时显示占位 |
-| `ChatInputBar` | `(input, isLoading, onInputChange, onSend, onCancel)` | 输入框、发送按钮和流式取消按钮 |
+| `ChatRoute` | `(viewModel: ChatViewModel = viewModel())` | 连接 ViewModel 与聊天界面 |
+| `ChatScreen` | `(messages, isLoading, onSendMessage, onCancelResponse)` | 聊天主界面 |
+| `MessageItem` | `(message, onProductClick)` | 单条消息与商品列表 |
+| `MessageBubble` | `(message)` | 消息气泡 |
+| `ProductCard` | `(product, onClick)` | 商品卡片 |
+| `ProductImage` | `(imageUrl, modifier)` | 商品图片 |
+| `ChatInputBar` | `(input, isLoading, onInputChange, onSend, onCancel)` | 输入栏 |
 | `ProductDialog` | `(product, onDismiss)` | 商品详情弹窗 |
 | `ProductInfoRow` | `(label, value)` | 商品详情字段行 |
-
-### MainActivity.kt
-
-| 类型/成员 | 签名 | 说明 |
-|-----------|------|------|
-| `MainActivity.onCreate` | `(savedInstanceState: Bundle?) -> Unit` | 启用 edge-to-edge，应用 `EcommerceRagAgentTheme` 并挂载 `ChatRoute` |
 
 ### Android 构建与运行配置
 
 | 文件 | 配置 | 说明 |
 |------|------|------|
-| `app/build.gradle.kts` | `BuildConfig.API_BASE_URL = "http://10.0.2.2:8000"` | Android 模拟器访问宿主机 FastAPI 的默认地址 |
-| `app/build.gradle.kts` | OkHttp、OkHttp SSE、Coil Compose、Lifecycle ViewModel Compose、Material Icons Extended | 客户端聊天、流式网络、图片和 UI 所需依赖 |
-| `AndroidManifest.xml` | `INTERNET`, `usesCleartextTraffic=true` | 允许 debug 客户端访问本地 HTTP 后端 |
-| `gradle.properties` | `kotlin.compiler.execution.strategy=in-process` | 避免当前工作区 Kotlin daemon 启动受限导致构建失败 |
+| `app/build.gradle.kts` | `BuildConfig.API_BASE_URL = "http://10.0.2.2:8000"` | 模拟器访问宿主机 FastAPI |
+| `app/build.gradle.kts` | OkHttp、OkHttp SSE、Coil Compose、Lifecycle ViewModel Compose、Material Icons Extended | 客户端依赖 |
+| `AndroidManifest.xml` | `INTERNET`, `usesCleartextTraffic=true` | 网络权限 |
+| `gradle.properties` | `kotlin.compiler.execution.strategy=in-process` | Kotlin daemon 配置 |

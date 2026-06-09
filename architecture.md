@@ -3,21 +3,47 @@
 ## 整体架构
 
 ```text
-┌──────────────────┐        SSE        ┌──────────────────────────────────────┐
-│ Android Client   │ ────────────────▶ │ FastAPI Server                       │
-│ Kotlin/Compose   │   POST /api/chat  │                                      │
-│                  │ ◀──────────────── │ ┌───────────┐     ┌──────────────┐   │
-│ ChatViewModel    │ product/token/done│ │  Intent   │ ──▶ │ Doubao API   │   │
-│ ChatApiService   │                   │ └─────┬─────┘     └──────────────┘   │
-│ ChatScreen       │                   │       ▼                              │
-└──────────────────┘                   │ ┌───────────┐     ┌──────────────┐   │
-                                       │ │ Retriever │ ──▶ │ ChromaDB     │   │
-                                       │ └─────┬─────┘     └──────────────┘   │
-                                       │       ▼                              │
-                                       │ ┌───────────┐     ┌──────────────┐   │
-                                       │ │ Generator │ ──▶ │ Doubao API   │   │
-                                       │ └───────────┘     └──────────────┘   │
-                                       └──────────────────────────────────────┘
+┌──────────────────┐        SSE         ┌──────────────────────────────────────┐
+│ Android Client   │ ────────────────▶  │ FastAPI Server                       │
+│ Kotlin/Compose   │   POST /api/chat   │                                      │
+│                  │ ◀────────────────  │ ┌─────────────┐   ┌──────────────┐   │
+│ ChatViewModel    │ product/compare/   │ │    Agent     │──▶│ Doubao API   │   │
+│                  │ token/done         │ │ (单跳工具调用)│   └──────────────┘   │
+│ ChatApiService   │ /status            │ └──────┬──────┘                       │
+│ ChatScreen       │                    │        │ tool_calls                   │
+└──────────────────┘                    │        ▼                             │
+                                        │ ┌─────────────┐   ┌──────────────┐  │
+                                        │ │    Tools     │──▶│ Retriever    │  │
+                                        │ └─────────────┘   └──────┬───────┘  │
+                                        │                          ▼          │
+                                        │ ┌─────────────┐   ┌──────────────┐  │
+                                        │ │Conversation  │   │  ChromaDB    │  │
+                                        │ └─────────────┘   └──────────────┘  │
+                                        └──────────────────────────────────────┘
+```
+
+## Agent 调用流程
+
+```text
+用户消息 + 对话历史
+    │
+    ▼
+Phase 1: LLM 决策（非流式）
+    │
+    ├─ 无 tool_calls → 直接回复
+    │   适用于：反问澄清 / 追问已展示商品 / 基于历史的对比 / 寒暄
+    │   可解析 <C> 结构化对比标记
+    │   yield CompareEvent(可选) + TokenEvent(全文)
+    │
+    └─ 有 tool_calls → 调用 retrieve_products
+        │
+        ▼
+    执行检索（每个 request 独立调用 retriever.retrieve）
+        │
+        ▼
+    Phase 2: LLM 生成（流式）
+        解析 <R> 推荐标记和可选 <C> 对比标记
+        yield ProductEvent + CompareEvent(可选) + TokenEvent
 ```
 
 ## 模块职责
@@ -25,6 +51,35 @@
 ### server/config.py
 - 从 `.env` 加载环境变量
 - 导出全局配置常量，包括 API Key、模型端点、ChromaDB 路径等
+
+### server/agent.py
+- Agent 编排核心：单跳工具调用 + 流式生成
+- Phase 1：LLM 接收对话历史 + 工具定义，决定调用工具还是直接回复
+- Phase 2（仅工具调用时）：将工具返回的多组商品资料注入上下文，LLM 流式生成推荐回复
+- 直接回复场景：反问澄清、追问已展示商品、寒暄等
+- 解析 `<R>` 推荐标记和可选 `<C>` 结构化对比标记，产出 TokenEvent / ProductEvent / CompareEvent / StatusEvent
+
+### server/tools/\_\_init\_\_.py
+- 工具注册表：维护工具定义列表和执行器映射
+- 提供统一的 `execute(name, arguments)` 分发接口
+
+### server/tools/retrieve_products.py
+- 定义 `retrieve_products` 工具的 OpenAI Function Calling schema
+- `execute()`：接收 `requests[]`，将每个 request 转为 `retriever.retrieve()` 的 intent dict 并独立执行检索
+- `parse_intent()`：通过强制工具调用提取检索意图（供离线评估使用）
+
+### server/conversation.py
+- 内存会话存储：`conversation_id -> list[message]`
+- 滑动窗口：保留最近 10 轮对话
+- 提供 `get_or_create_id`、`get_history`、`append` 接口
+
+### server/retriever.py
+- 模块级初始化 ChromaDB PersistentClient，复用连接
+- 接收用户 query 和 intent，用 rewritten_query 做向量检索
+- 结合 category / SKU 价格范围 / brand 的 ChromaDB metadata filter
+- 用向量距离、must_have_terms 命中率和 exclude_terms 违规分加权重排
+- exclude_terms 对商品正文/元数据和用户评论分段采用指数衰减惩罚（正文 0.25^n，评论 0.15^n），并保护否定上下文
+- 返回 Top-K 商品信息
 
 ### server/ingest.py
 - 扫描 `ecommerce_agent_dataset/` 下所有类目目录
@@ -37,26 +92,6 @@
 - 统一创建 ChromaDB embedding function
 - 使用 `BAAI/bge-base-zh-v1.5`（512 token 窗口）
 
-### server/intent.py
-- 调用 Doubao API 解析用户购物意图
-- 输出结构化 JSON：改写 query、类目、价格区间、正向关键词、否定关键词、品牌排除
-- 对"左右/出头"等模糊价格表达输出放宽后的价格区间
-- 解析失败时回退为原始 query
-
-### server/retriever.py
-- 模块级初始化 ChromaDB PersistentClient，复用连接
-- 接收用户 query 和 intent，用 rewritten_query 做向量检索
-- 结合 category / SKU 价格范围 / brand 的 ChromaDB metadata filter
-- 用向量距离、must_have_terms 命中率和 exclude_terms 违规分加权重排
-- exclude_terms 对商品正文/元数据和用户评论分段采用指数衰减惩罚（正文 0.25^n，评论 0.15^n），并保护"无/不/未/非/没"等否定上下文
-- 返回 Top-K 商品信息
-
-### server/generator.py
-- 构造 System Prompt + User Prompt，并注入检索上下文
-- 要求 LLM 在回复开头输出 `<R>product_id,...</R>` 推荐标记
-- 调用 Doubao API 的 OpenAI 兼容接口，使用 `stream=True`
-- 逐 token yield 生成结果
-
 ### server/schemas.py
 - 定义 `ChatRequest`：聊天请求体
 - 定义 `Product`：商品卡片数据
@@ -66,7 +101,7 @@
 - 配置 CORS 中间件
 - 挂载 `/assets` 静态资源路径，用于返回商品图片
 - 提供 `GET /health`
-- 提供 `POST /api/chat` SSE 端点：意图解析 → 混合检索 → LLM 流式生成 → 解析 `<R>` 标记 → 只发送 LLM 推荐的商品卡片 → 流式文本
+- 提供 `POST /api/chat` SSE 端点：委托 `agent.run_turn()` 执行，将事件流转为 SSE
 
 ### client-android/
 - `MainActivity`：应用入口，启用 edge-to-edge 后挂载 `ChatRoute`
@@ -98,13 +133,22 @@ ChatApiService
     │ POST {"message": "...", "conversation_id": "..."} 到 /api/chat
     ▼
 FastAPI
-    │ 1. LLM 意图解析（query 改写 + 结构化 filter）
-    │ 2. ChromaDB 混合检索 Top-K 并重排
-    │ 3. 组装 prompt + context，调用 Doubao API stream
-    │ 4. 解析 <R> 标记，只发送 LLM 推荐的 product 事件
+    │ 1. Agent Phase 1：LLM 接收历史+工具定义，决策是否调用工具
+    │    - 无需检索：直接生成回复（反问/追问/寒暄）
+    │    - 需要检索：调用 retrieve_products 工具，普通推荐使用 1 个 request，组合推荐使用多个 request
+    │ 2. Agent Phase 2（仅工具调用时）：
+    │    - 多组检索结果注入上下文，LLM 流式生成推荐回复
+    │    - 解析 <R> 标记，只发送 LLM 推荐的商品卡片
+    │    - 解析可选 <C> 标记，发送结构化对比事件
+    ▼
+SSE event: status (可选)
+    │ 仅工具调用时发送，客户端可展示"正在检索..."
     ▼
 SSE event: product
-    │ 仅包含 LLM 明确推荐的商品
+    │ 仅包含 LLM 明确推荐的商品；组合推荐也按扁平商品列表发送，不按子需求分组
+    ▼
+SSE event: compare (可选)
+    │ 仅对比决策场景发送，携带结构化对比表数据
     ▼
 SSE event: token
     │ ChatApiService 解析为 Token
@@ -121,6 +165,7 @@ ChatScreen 渲染消息气泡、商品卡片、图片和详情弹窗
 | 组件 | 技术 |
 |------|------|
 | 后端框架 | Python 3.10+ / FastAPI |
+| Agent 编排 | 单跳工具调用（OpenAI Function Calling 协议） |
 | 向量数据库 | ChromaDB（嵌入式） |
 | Embedding | BAAI/bge-base-zh-v1.5（512 token 窗口） |
 | LLM | Doubao-Seed-2.0-lite（Ark API） |
