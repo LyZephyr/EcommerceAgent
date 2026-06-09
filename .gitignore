@@ -24,7 +24,6 @@ Thumbs.db
 *.apk
 *.aab
 
-AGENTS.md
 .agents
 .codex
 eval/
