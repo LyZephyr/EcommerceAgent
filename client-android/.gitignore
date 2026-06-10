@@ -12,6 +12,8 @@
 /captures
 .externalNativeBuild
 .cxx
+env.ps1
 local.properties
 .gradle-user-home/
 .gradle-user/
+.gradle-home/

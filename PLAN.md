@@ -373,6 +373,14 @@ ChromaDB 存储内容：
   - 价格变更后加购能看到最新价格和提示。
   - 库存为 0 或下架时，加购失败提示来自后端。
 
+当前实施状态：
+
+- Android `CartItem` 已增加 `stock`、`isActive`、`unavailableReason`，`Cart` 已增加 `messages`。
+- `ChatApiService.parseCart()` 已解析 `stock`、`is_active`、`unavailable_reason` 和 `messages`，并保留旧字段解析能力。
+- 购物车摘要条和 bottom sheet 已展示后端 `messages`；不可用条目会展示库存不足、商品下架等状态。
+- 直接 HTTP 加购失败继续通过现有 `cartError` 展示后端 `detail`。
+- Android JVM 测试已覆盖新购物车状态字段解析和旧响应解析。
+
 ## 五、推荐实施顺序
 
 建议按以下顺序推进：

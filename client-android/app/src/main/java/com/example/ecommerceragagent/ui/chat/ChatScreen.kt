@@ -196,7 +196,7 @@ fun ChatScreen(
         },
         bottomBar = {
             Column {
-                if (cart.totalQuantity > 0 || cartError != null) {
+                if (cart.totalQuantity > 0 || cartError != null || cart.messages.isNotEmpty()) {
                     CartSummaryBar(
                         cart = cart,
                         cartError = cartError,
@@ -646,6 +646,9 @@ private fun CartSummaryBar(
     onClick: () -> Unit
 ) {
     val totalText = remember(cart.totalPrice) { formatPrice(cart.totalPrice) }
+    val summaryText = cartError
+        ?: cart.messages.firstOrNull()
+        ?: "购物车 ${cart.totalQuantity} 件"
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -669,7 +672,7 @@ private fun CartSummaryBar(
                     contentDescription = null
                 )
                 Text(
-                    text = cartError ?: "购物车 ${cart.totalQuantity} 件",
+                    text = summaryText,
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
@@ -738,6 +741,8 @@ private fun CartSheet(
                 )
             }
 
+            CartNoticeList(messages = cart.messages)
+
             if (cart.items.isEmpty()) {
                 Box(
                     modifier = Modifier
@@ -769,6 +774,30 @@ private fun CartSheet(
 }
 
 @Composable
+private fun CartNoticeList(messages: List<String>) {
+    if (messages.isEmpty()) {
+        return
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.secondaryContainer)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        messages.forEach { message ->
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+        }
+    }
+}
+
+@Composable
 private fun CartItemRow(
     item: CartItem,
     enabled: Boolean,
@@ -776,6 +805,15 @@ private fun CartItemRow(
     onDecrement: () -> Unit,
     onRemove: () -> Unit
 ) {
+    val statusText = item.unavailableReason
+        ?: when {
+            item.isActive == false -> "商品已下架"
+            item.stock == 0 -> "库存不足"
+            item.stock != null && item.quantity > item.stock -> "库存不足，仅剩 ${item.stock} 件"
+            else -> null
+        }
+    val canAdjustQuantity = enabled && statusText == null
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
@@ -809,13 +847,30 @@ private fun CartItemRow(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                statusText?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+                item.stock?.let { stock ->
+                    if (statusText == null) {
+                        Text(
+                            text = "库存 $stock 件",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(
                         modifier = Modifier.size(32.dp),
-                        enabled = enabled,
+                        enabled = canAdjustQuantity,
                         onClick = onDecrement
                     ) {
                         Icon(
@@ -830,7 +885,7 @@ private fun CartItemRow(
                     )
                     IconButton(
                         modifier = Modifier.size(32.dp),
-                        enabled = enabled,
+                        enabled = canAdjustQuantity,
                         onClick = onIncrement
                     ) {
                         Icon(

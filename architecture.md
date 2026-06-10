@@ -354,9 +354,11 @@ current cart snapshot in `ChatUiState.cart`, tracks direct cart mutations with
 operations for Compose.
 
 `ChatScreen` renders a global cart icon in the app bar, a cart summary strip
-above the input bar when the cart has items or an error, and a
-`ModalBottomSheet` for cart management. Product cards and the product detail
-dialog call `POST /api/cart/items` through `ChatViewModel.addToCart`; the
+above the input bar when the cart has items, an error, or backend cart messages,
+and a `ModalBottomSheet` for cart management. The summary and sheet display
+backend `messages`, and cart rows display `unavailableReason` / stock / active
+state when the backend marks an item unavailable. Product cards and the product
+detail dialog call `POST /api/cart/items` through `ChatViewModel.addToCart`; the
 backend still resolves trusted title, price, and image data from the current
 conversation's recently displayed product pool.
 

@@ -223,7 +223,7 @@ class ChatApiService(
         )
     }
 
-    private fun parseCart(data: String): Cart {
+    internal fun parseCart(data: String): Cart {
         val json = JSONObject(data)
         val itemsJson = json.getJSONArray("items")
         val items = buildList {
@@ -238,17 +238,31 @@ class ChatApiService(
                         brand = itemJson.optStringOrNull("brand"),
                         subCategory = itemJson.optStringOrNull("sub_category"),
                         imageUrl = absoluteImageUrl(itemJson.optStringOrNull("image_url")),
-                        quantity = itemJson.getInt("quantity")
+                        quantity = itemJson.getInt("quantity"),
+                        stock = itemJson.optIntOrNull("stock"),
+                        isActive = itemJson.optBooleanOrNull("is_active"),
+                        unavailableReason = itemJson.optStringOrNull("unavailable_reason")
                     )
                 )
             }
+        }
+        val messages = if (json.has("messages") && !json.isNull("messages")) {
+            val messagesJson = json.getJSONArray("messages")
+            buildList {
+                for (index in 0 until messagesJson.length()) {
+                    messagesJson.optString(index).takeIf { it.isNotBlank() }?.let(::add)
+                }
+            }
+        } else {
+            emptyList()
         }
 
         return Cart(
             conversationId = json.getString("conversation_id"),
             items = items,
             totalQuantity = json.getInt("total_quantity"),
-            totalPrice = json.getDouble("total_price")
+            totalPrice = json.getDouble("total_price"),
+            messages = messages
         )
     }
 
@@ -278,5 +292,19 @@ class ChatApiService(
             return null
         }
         return optString(name).takeIf { it.isNotBlank() }
+    }
+
+    private fun JSONObject.optIntOrNull(name: String): Int? {
+        if (!has(name) || isNull(name)) {
+            return null
+        }
+        return optInt(name)
+    }
+
+    private fun JSONObject.optBooleanOrNull(name: String): Boolean? {
+        if (!has(name) || isNull(name)) {
+            return null
+        }
+        return optBoolean(name)
     }
 }

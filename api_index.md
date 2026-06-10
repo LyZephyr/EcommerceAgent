@@ -493,8 +493,8 @@ server/.venv/bin/python eval/run_saved_intent_vector_eval.py --vector-only
 
 | Type / member | Signature | Description |
 |---------------|-----------|-------------|
-| `CartItem` | `productId`, `title`, `category`, `price`, `brand`, `subCategory`, `imageUrl`, `quantity`, `subtotal` | Client model for one cart row. |
-| `Cart` | `conversationId`, `items`, `totalQuantity`, `totalPrice` | Client model for backend cart snapshots. |
+| `CartItem` | `productId`, `title`, `category`, `price`, `brand`, `subCategory`, `imageUrl`, `quantity`, `stock`, `isActive`, `unavailableReason`, `subtotal` | Client model for one cart row, including backend availability state. |
+| `Cart` | `conversationId`, `items`, `totalQuantity`, `totalPrice`, `messages` | Client model for backend cart snapshots, including server notices such as price changes or unavailable products. |
 | `ChatEvent.CartUpdated` | `cart: Cart` | Parsed backend `cart` SSE event. |
 | `ChatApiService.getCart` | `suspend (conversationId: String) -> Cart` | Calls `GET /api/cart`. |
 | `ChatApiService.addCartItem` | `suspend (conversationId: String, productId: String, quantity: Int = 1) -> Cart` | Calls `POST /api/cart/items`. |
@@ -504,8 +504,8 @@ server/.venv/bin/python eval/run_saved_intent_vector_eval.py --vector-only
 | `ChatUiState.cart` | `Cart` | Current cart snapshot for the active conversation. |
 | `ChatUiState.isCartLoading` | `Boolean` | True while a direct cart HTTP mutation is in flight. |
 | `ChatUiState.cartError` | `String?` | Last cart mutation error shown in the cart summary/sheet. |
-| `CartSummaryBar` | `(cart, cartError, isCartLoading, onClick)` | Summary strip above the chat input. |
-| `CartSheet` | `(cart, isCartLoading, cartError, onDismiss, onIncrement, onDecrement, onRemove, onClear)` | Bottom sheet for cart detail and management. |
+| `CartSummaryBar` | `(cart, cartError, isCartLoading, onClick)` | Summary strip above the chat input; shows cart errors first, then backend cart messages. |
+| `CartSheet` | `(cart, isCartLoading, cartError, onDismiss, onIncrement, onDecrement, onRemove, onClear)` | Bottom sheet for cart detail and management; shows backend messages and per-item unavailable status. |
 
 ## End-to-end validation
 
