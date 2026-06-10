@@ -6,6 +6,7 @@ import re
 
 import chromadb
 
+import product_store
 from config import CHROMA_COLLECTION_NAME, CHROMA_PERSIST_DIR, TOP_K
 from embedding import get_embedding_function
 
@@ -14,13 +15,13 @@ _MUST_TERM_WEIGHT = 0.3
 _EXCLUDE_DOCUMENT_PENALTY_BASE = 0.25
 _EXCLUDE_REVIEW_PENALTY_BASE = 0.15
 _NEGATION_PREFIXES = ("无", "未", "非", "没", "0", "零", "不")
-_USER_REVIEW_SECTION_MARKER = "\n用户评价:"
+_USER_REVIEW_SECTION_MARKERS = ("\n用户评价:", "\n用户评价：")
 
 _chroma_client = chromadb.PersistentClient(path=CHROMA_PERSIST_DIR)
 
 
 def retrieve(query: str, top_k: int = 5, intent: dict | None = None) -> list[dict]:
-    """对 query 做 embedding，结合意图的 metadata filter 检索，返回 Top-K 商品。"""
+    """召回 ChromaDB 候选，再用 MySQL 最新商品快照补全和过滤。"""
     collection = _chroma_client.get_collection(
         name=CHROMA_COLLECTION_NAME,
         embedding_function=get_embedding_function(),
@@ -52,7 +53,7 @@ def retrieve(query: str, top_k: int = 5, intent: dict | None = None) -> list[dic
             include=["documents", "metadatas", "distances"],
         )
 
-    products = []
+    candidates = []
     for chunk_id, document, metadata, distance in zip(
         result["ids"][0],
         result["documents"][0],
@@ -64,9 +65,10 @@ def retrieve(query: str, top_k: int = 5, intent: dict | None = None) -> list[dic
         product["product_id"] = str(metadata.get("product_id") or chunk_id)
         product["document"] = document
         product["distance"] = float(distance)
-        products.append(product)
+        candidates.append(product)
 
-    return _rerank(products, intent)[:limit]
+    ranked_candidates = _rerank(candidates, intent)
+    return _hydrate_and_filter_products(ranked_candidates, intent)[:limit]
 
 
 def _build_where_filter(intent: dict) -> dict | None:
@@ -75,14 +77,6 @@ def _build_where_filter(intent: dict) -> dict | None:
     category = intent.get("category")
     if category:
         conditions.append({"category": {"$eq": category}})
-
-    min_price = intent.get("min_price")
-    if min_price is not None:
-        conditions.append({"max_price": {"$gte": float(min_price)}})
-
-    max_price = intent.get("max_price")
-    if max_price is not None:
-        conditions.append({"min_price": {"$lte": float(max_price)}})
 
     exclude_brands = intent.get("exclude_brands") or []
     if exclude_brands:
@@ -93,6 +87,82 @@ def _build_where_filter(intent: dict) -> dict | None:
     if len(conditions) == 1:
         return conditions[0]
     return {"$and": conditions}
+
+
+def _hydrate_and_filter_products(
+    candidates: list[dict],
+    intent: dict | None = None,
+) -> list[dict]:
+    if not candidates:
+        return []
+
+    candidate_by_id = {candidate["product_id"]: candidate for candidate in candidates}
+    mysql_products = product_store.get_products_by_ids(
+        [candidate["product_id"] for candidate in candidates]
+    )
+
+    products = []
+    for mysql_product in mysql_products:
+        candidate = candidate_by_id.get(mysql_product["product_id"])
+        if not candidate or not _passes_mysql_filters(mysql_product, intent):
+            continue
+        products.append(_product_from_mysql(mysql_product, candidate))
+    return products
+
+
+def _passes_mysql_filters(product: dict, intent: dict | None = None) -> bool:
+    if not product.get("is_active"):
+        return False
+    if int(product.get("stock") or 0) <= 0:
+        return False
+    if not intent:
+        return True
+
+    category = intent.get("category")
+    if category and product.get("category") != category:
+        return False
+
+    exclude_brands = _string_list(intent.get("exclude_brands"))
+    if _normalized_text(str(product.get("brand") or "")) in {
+        _normalized_text(brand) for brand in exclude_brands
+    }:
+        return False
+
+    min_price = intent.get("min_price")
+    if min_price is not None and float(product["price"]) < float(min_price):
+        return False
+
+    max_price = intent.get("max_price")
+    if max_price is not None and float(product["price"]) > float(max_price):
+        return False
+
+    return True
+
+
+def _product_from_mysql(product: dict, candidate: dict) -> dict:
+    price = float(product["price"])
+    return {
+        "product_id": str(product["product_id"]),
+        "title": product["title"],
+        "brand": product.get("brand") or "",
+        "category": product.get("category") or "",
+        "sub_category": product.get("sub_category") or "",
+        "price": price,
+        "min_price": price,
+        "max_price": price,
+        "stock": int(product.get("stock") or 0),
+        "is_active": bool(product.get("is_active")),
+        "image_url": product.get("image_url") or "",
+        "document": _document_for_llm(str(product.get("description") or "")),
+        "distance": candidate["distance"],
+        "rerank_score": candidate.get("rerank_score", 0.0),
+    }
+
+
+def _document_for_llm(document: str) -> str:
+    document = re.sub(r"(?m)^基础价格：.*(?:\n|$)", "", document)
+    document = re.sub(r"，价格：[^，；\n]+元", "", document)
+    return document.strip()
 
 
 def _rerank(products: list[dict], intent: dict | None = None) -> list[dict]:
@@ -170,10 +240,11 @@ def _constraint_violation_penalty(terms: list[str], product: dict) -> float:
 
 
 def _split_review_document(document: str) -> tuple[str, str]:
-    product_document, marker, review_document = document.partition(_USER_REVIEW_SECTION_MARKER)
-    if not marker:
-        return document, ""
-    return product_document, review_document
+    for marker_text in _USER_REVIEW_SECTION_MARKERS:
+        product_document, marker, review_document = document.partition(marker_text)
+        if marker:
+            return product_document, review_document
+    return document, ""
 
 
 def _unprotected_hit_count(terms: list[str], text: str) -> int:

@@ -11,10 +11,17 @@ SERVER_DIR = Path(__file__).resolve().parents[1] / "server"
 sys.path.insert(0, str(SERVER_DIR))
 
 import cart_store  # noqa: E402
+import product_store  # noqa: E402
 from main import app  # noqa: E402
 
 
-def test_cart_item_lifecycle():
+def test_cart_item_lifecycle(monkeypatch):
+    _install_product_store(
+        monkeypatch,
+        {
+            "p-1": _product("p-1", price=19.9),
+        },
+    )
     asyncio.run(_test_cart_item_lifecycle())
 
 
@@ -83,7 +90,14 @@ async def _test_cart_item_lifecycle():
         assert cleared.json()["total_price"] == 0
 
 
-def test_cart_isolated_by_conversation_id():
+def test_cart_isolated_by_conversation_id(monkeypatch):
+    _install_product_store(
+        monkeypatch,
+        {
+            "p-1": _product("p-1", price=10),
+            "p-2": _product("p-2", price=20),
+        },
+    )
     asyncio.run(_test_cart_isolated_by_conversation_id())
 
 
@@ -153,6 +167,70 @@ async def _test_add_rejects_product_outside_recent_pool():
         assert cart.json()["items"] == []
 
 
+def test_add_uses_latest_mysql_price(monkeypatch):
+    _install_product_store(
+        monkeypatch,
+        {
+            "p-1": _product("p-1", price=29.9),
+        },
+    )
+    asyncio.run(_test_add_uses_latest_mysql_price())
+
+
+async def _test_add_uses_latest_mysql_price():
+    conversation_id = uuid4().hex
+    cart_store.record_recent_product(conversation_id, _product("p-1", price=19.9))
+
+    async with _client() as client:
+        response = await client.post(
+            "/api/cart/items",
+            json={
+                "conversation_id": conversation_id,
+                "product_id": "p-1",
+                "quantity": 1,
+            },
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["items"][0]["price"] == 29.9
+    assert body["total_price"] == 29.9
+    assert "价格已更新" in body["messages"][0]
+
+
+def test_add_rejects_out_of_stock_mysql_product(monkeypatch):
+    _install_product_store(
+        monkeypatch,
+        {
+            "p-1": _product("p-1", price=19.9) | {"stock": 0},
+        },
+    )
+    asyncio.run(_test_add_rejects_out_of_stock_mysql_product())
+
+
+async def _test_add_rejects_out_of_stock_mysql_product():
+    conversation_id = uuid4().hex
+    cart_store.record_recent_product(conversation_id, _product("p-1", price=19.9))
+
+    async with _client() as client:
+        response = await client.post(
+            "/api/cart/items",
+            json={
+                "conversation_id": conversation_id,
+                "product_id": "p-1",
+                "quantity": 1,
+            },
+        )
+        cart = await client.get(
+            "/api/cart",
+            params={"conversation_id": conversation_id},
+        )
+
+    assert response.status_code == 409
+    assert "库存不足" in response.json()["detail"]
+    assert cart.json()["items"] == []
+
+
 def _client() -> httpx.AsyncClient:
     transport = httpx.ASGITransport(app=app)
     return httpx.AsyncClient(transport=transport, base_url="http://testserver")
@@ -167,4 +245,22 @@ def _product(product_id: str, price: float = 99.0) -> dict:
         "sub_category": "测试子类目",
         "price": price,
         "image_url": "/assets/test.jpg",
+        "stock": 5,
+        "is_active": True,
     }
+
+
+def _install_product_store(monkeypatch, products: dict[str, dict]) -> None:
+    def fake_get_product_by_id(product_id: str) -> dict | None:
+        product = products.get(product_id)
+        return dict(product) if product else None
+
+    def fake_get_products_by_ids(product_ids: list[str]) -> list[dict]:
+        return [
+            dict(products[product_id])
+            for product_id in product_ids
+            if product_id in products
+        ]
+
+    monkeypatch.setattr(product_store, "get_product_by_id", fake_get_product_by_id)
+    monkeypatch.setattr(product_store, "get_products_by_ids", fake_get_products_by_ids)

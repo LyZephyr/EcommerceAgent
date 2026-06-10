@@ -136,10 +136,18 @@ def _add_to_cart(arguments: dict, conversation_id: str) -> dict:
     if error:
         return _error(error)
 
-    cart = cart_store.add_item(conversation_id, product, quantity)
+    try:
+        cart = cart_store.add_item(conversation_id, product, quantity)
+    except cart_store.CartOperationError as exc:
+        return _error(str(exc))
+
+    item = _cart_item_by_id(cart, product["product_id"]) or product
     return _success(
         cart,
-        f"已将「{product['title']}」加入购物车，数量 {quantity} 件。{_summary(cart)}",
+        _with_cart_messages(
+            f"已将「{item['title']}」加入购物车，数量 {quantity} 件。{_summary(cart)}",
+            cart,
+        ),
     )
 
 
@@ -161,23 +169,32 @@ def _update_cart_item(arguments: dict, conversation_id: str) -> dict:
     if error:
         return _error(error)
 
-    cart = cart_store.update_item(conversation_id, item["product_id"], quantity)
+    try:
+        cart = cart_store.update_item(conversation_id, item["product_id"], quantity)
+    except cart_store.CartOperationError as exc:
+        return _error(str(exc))
+
+    latest_item = _cart_item_by_id(cart, item["product_id"]) or item
     return _success(
         cart,
-        f"已把「{item['title']}」数量改为 {quantity} 件。{_summary(cart)}",
+        _with_cart_messages(
+            f"已把「{latest_item['title']}」数量改为 {quantity} 件。{_summary(cart)}",
+            cart,
+        ),
     )
 
 
 def _view_cart(conversation_id: str) -> dict:
     cart = cart_store.snapshot(conversation_id)
     if not cart["items"]:
-        return _success(cart, "购物车还是空的。")
+        return _success(cart, _with_cart_messages("购物车还是空的。", cart))
 
     lines = [
         f"{index}. {item['title']} x {item['quantity']}，¥{item['price']:.2f}"
         for index, item in enumerate(cart["items"], start=1)
     ]
-    return _success(cart, "购物车里有：\n" + "\n".join(lines) + f"\n{_summary(cart)}")
+    message = "购物车里有：\n" + "\n".join(lines) + f"\n{_summary(cart)}"
+    return _success(cart, _with_cart_messages(message, cart))
 
 
 def _clear_cart(conversation_id: str) -> dict:
@@ -276,3 +293,17 @@ def _error(message: str) -> dict:
 
 def _summary(cart: dict) -> str:
     return f"当前共 {cart['total_quantity']} 件，合计 ¥{cart['total_price']:.2f}。"
+
+
+def _cart_item_by_id(cart: dict, product_id: str) -> dict | None:
+    for item in cart["items"]:
+        if item["product_id"] == product_id:
+            return item
+    return None
+
+
+def _with_cart_messages(message: str, cart: dict) -> str:
+    messages = cart.get("messages") or []
+    if not messages:
+        return message
+    return message + "\n" + "\n".join(messages)

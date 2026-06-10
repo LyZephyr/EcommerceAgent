@@ -19,7 +19,7 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:8000\"")
+        buildConfigField("String", "API_BASE_URL", "\"http://192.168.188.128:8000\"")
     }
 
     signingConfigs {

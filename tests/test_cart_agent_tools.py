@@ -12,14 +12,20 @@ sys.path.insert(0, str(SERVER_DIR))
 
 import cart_store  # noqa: E402
 import main  # noqa: E402
+import product_store  # noqa: E402
 from agent import CartEvent, TokenEvent  # noqa: E402
 from tools import execute  # noqa: E402
 
 
-def test_cart_tool_adds_recent_product_by_position():
+def test_cart_tool_adds_recent_product_by_position(monkeypatch):
     conversation_id = uuid4().hex
-    cart_store.record_recent_product(conversation_id, _product("p-1", title="第一款"))
-    cart_store.record_recent_product(conversation_id, _product("p-2", title="第二款"))
+    products = {
+        "p-1": _product("p-1", title="第一款"),
+        "p-2": _product("p-2", title="第二款"),
+    }
+    _install_product_store(monkeypatch, products)
+    cart_store.record_recent_product(conversation_id, products["p-1"])
+    cart_store.record_recent_product(conversation_id, products["p-2"])
 
     result = execute(
         "add_to_cart",
@@ -33,12 +39,11 @@ def test_cart_tool_adds_recent_product_by_position():
     assert result["cart"]["total_quantity"] == 2
 
 
-def test_cart_tool_updates_and_removes_by_keyword():
+def test_cart_tool_updates_and_removes_by_keyword(monkeypatch):
     conversation_id = uuid4().hex
-    cart_store.record_recent_product(
-        conversation_id,
-        _product("p-1", title="轻量蓝牙耳机", category="数码电子"),
-    )
+    product = _product("p-1", title="轻量蓝牙耳机", category="数码电子")
+    _install_product_store(monkeypatch, {"p-1": product})
+    cart_store.record_recent_product(conversation_id, product)
     execute("add_to_cart", {"title_keyword": "耳机"}, conversation_id)
 
     updated = execute(
@@ -54,10 +59,15 @@ def test_cart_tool_updates_and_removes_by_keyword():
     assert removed["cart"]["items"] == []
 
 
-def test_cart_tool_rejects_ambiguous_recent_reference():
+def test_cart_tool_rejects_ambiguous_recent_reference(monkeypatch):
     conversation_id = uuid4().hex
-    cart_store.record_recent_product(conversation_id, _product("p-1", title="第一款"))
-    cart_store.record_recent_product(conversation_id, _product("p-2", title="第二款"))
+    products = {
+        "p-1": _product("p-1", title="第一款"),
+        "p-2": _product("p-2", title="第二款"),
+    }
+    _install_product_store(monkeypatch, products)
+    cart_store.record_recent_product(conversation_id, products["p-1"])
+    cart_store.record_recent_product(conversation_id, products["p-2"])
 
     result = execute("add_to_cart", {}, conversation_id)
 
@@ -118,4 +128,22 @@ def _product(
         "sub_category": "测试子类目",
         "price": price,
         "image_url": "/assets/test.jpg",
+        "stock": 5,
+        "is_active": True,
     }
+
+
+def _install_product_store(monkeypatch, products: dict[str, dict]) -> None:
+    def fake_get_product_by_id(product_id: str) -> dict | None:
+        product = products.get(product_id)
+        return dict(product) if product else None
+
+    def fake_get_products_by_ids(product_ids: list[str]) -> list[dict]:
+        return [
+            dict(products[product_id])
+            for product_id in product_ids
+            if product_id in products
+        ]
+
+    monkeypatch.setattr(product_store, "get_product_by_id", fake_get_product_by_id)
+    monkeypatch.setattr(product_store, "get_products_by_ids", fake_get_products_by_ids)

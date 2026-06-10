@@ -10,6 +10,7 @@
 │   ├── config.py               # 配置管理
 │   ├── product_store.py        # MySQL 商品权威源
 │   ├── ingest.py               # 数据导入 & 向量化
+│   ├── chroma_sync.py          # MySQL -> ChromaDB 增量同步
 │   ├── retriever.py            # RAG 检索模块
 │   ├── agent.py                # Agent 编排
 │   ├── cart_store.py           # 内存购物车
@@ -21,6 +22,7 @@
 │   └── reports/                # 评估报告输出
 ├── client-android/             # Android 客户端 (Kotlin/Compose)
 ├── ecommerce_agent_dataset/    # 商品数据集 (4 类目 × 25 条)
+├── docker-compose.yml          # 开发用 MySQL 容器
 ├── PLAN.md                     # 实施计划
 ├── architecture.md             # 系统架构
 └── api_index.md                # API 索引
@@ -31,39 +33,59 @@
 ### 环境要求
 
 - Python 3.10+
-- MySQL 8.x
+- Docker 与 Docker Compose（仅用于 MySQL）
 - Android Studio (Ladybug+)
 - JDK 11+
 
-### 后端启动
+### 1. 启动 MySQL
 
 ```bash
-# 1. 创建虚拟环境
+# 在项目根目录执行
+cp .env.example .env
+# 编辑 .env：填入 ARK_API_KEY；MYSQL_PASSWORD 默认 ecommerce123 即可
+# HF_ENDPOINT 默认使用 hf-mirror.com 下载 embedding 模型；首次 ingest 前请保持 HF_HUB_OFFLINE=0
+
+docker compose up -d
+```
+
+MySQL 映射到本机 `127.0.0.1:3306`，数据持久化在 Docker 卷 `mysql_data`。
+
+```bash
+# 查看 MySQL 状态
+docker compose ps
+
+# 停止（保留数据）
+docker compose down
+
+# 停止并清空数据库
+docker compose down -v
+```
+
+若 `3306` 端口已被占用，在 `.env` 中设置 `MYSQL_PORT=3307`。
+
+### 2. 启动后端
+
+```bash
 cd server
 python -m venv .venv
-source .venv/bin/activate
-
-# 2. 安装依赖
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
-# 3. 配置环境变量
-cp ../.env.example ../.env
-# 编辑 .env 填入 ARK_API_KEY 和 MySQL 连接信息：
-# MYSQL_HOST=127.0.0.1
-# MYSQL_PORT=3306
-# MYSQL_USER=root
-# MYSQL_PASSWORD=your-password
-# MYSQL_DATABASE=ecommerce_agent
-
-# 4. 初始化 MySQL 商品权威源
+# 初始化 MySQL 商品权威源
 python product_store.py
 
-# 5. 导入商品向量数据
+# 导入商品向量数据（首次会通过 HF_ENDPOINT 镜像下载 embedding 模型，可能较慢）
 python ingest.py
 
-# 6. 启动服务
-# 启动时也会自动把 ecommerce_agent_dataset/ 幂等加载到 MySQL
+# 可选：Demo 前手动执行一次 MySQL -> ChromaDB 增量同步
+python chroma_sync.py
+
+# 启动服务（启动时会自动把 ecommerce_agent_dataset/ 幂等加载到 MySQL，并每 3 分钟后台增量同步 ChromaDB）
 uvicorn main:app --host 0.0.0.0 --port 8000
+```
+
+```bash
+curl http://127.0.0.1:8000/health
 ```
 
 ### 检索评估
@@ -87,8 +109,8 @@ server/.venv/bin/python eval/run_retrieval_eval.py --no-intent
 # 指定 Top-K
 server/.venv/bin/python eval/run_retrieval_eval.py --top-k 10
 
-# 离线环境（embedding 模型已缓存时）
-HF_HUB_OFFLINE=1 server/.venv/bin/python eval/run_retrieval_eval.py
+# 离线环境（embedding 模型已缓存时；或在 .env 中设置 HF_HUB_OFFLINE=1）
+server/.venv/bin/python eval/run_retrieval_eval.py
 ```
 
 **输出指标**：Recall@K、MRR、Hit Rate@K、Precision@K。完整报告含逐条 query 的命中详情及解析出的 `intent` 字段。
@@ -106,6 +128,7 @@ HF_HUB_OFFLINE=1 server/.venv/bin/python eval/run_retrieval_eval.py
 | 后端框架 | FastAPI |
 | 商品权威源 | MySQL + SQLAlchemy Core + PyMySQL |
 | 向量数据库 | ChromaDB |
+| 索引同步 | FastAPI 后台任务 + MySQL `sync_state` |
 | Embedding | BAAI/bge-base-zh-v1.5 |
 | LLM | Doubao-Seed-2.0-lite |
 | 流式传输 | SSE |

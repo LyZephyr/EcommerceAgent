@@ -70,6 +70,22 @@ products_table = Table(
     mysql_collate="utf8mb4_unicode_ci",
 )
 
+sync_state_table = Table(
+    "sync_state",
+    _metadata,
+    Column("name", String(128), primary_key=True),
+    Column("last_sync_at", DateTime, nullable=False),
+    Column(
+        "updated_at",
+        DateTime,
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    ),
+    mysql_charset="utf8mb4",
+    mysql_collate="utf8mb4_unicode_ci",
+)
+
 
 def initialize_database() -> None:
     """创建数据库和 products 表。"""
@@ -190,6 +206,27 @@ def count_products() -> int:
     statement = select(func.count()).select_from(products_table)
     with get_engine().connect() as connection:
         return int(connection.execute(statement).scalar_one())
+
+
+def get_sync_state(name: str) -> datetime | None:
+    statement = select(sync_state_table.c.last_sync_at).where(
+        sync_state_table.c.name == name
+    )
+    with get_engine().connect() as connection:
+        return connection.execute(statement).scalar_one_or_none()
+
+
+def set_sync_state(name: str, last_sync_at: datetime) -> None:
+    statement = insert(sync_state_table).values(
+        name=name,
+        last_sync_at=last_sync_at,
+    )
+    statement = statement.on_duplicate_key_update(
+        last_sync_at=statement.inserted.last_sync_at,
+        updated_at=func.now(),
+    )
+    with get_engine().begin() as connection:
+        connection.execute(statement)
 
 
 def product_to_record(product: dict) -> dict:

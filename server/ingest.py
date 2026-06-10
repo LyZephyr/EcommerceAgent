@@ -1,13 +1,19 @@
-"""数据导入脚本：读取商品 JSON，构建 embedding 文本与完整文档后写入 ChromaDB。"""
+"""ChromaDB 索引构建脚本。
+
+商品数据的权威源是 MySQL。本模块仍保留数据集 JSON 解析和商品文本构建
+函数，供 product_store 启动加载数据集时复用；ChromaDB ingest 本身只读取
+MySQL 中的上架商品。
+"""
 
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
 
 import chromadb
 
-from config import CHROMA_COLLECTION_NAME, CHROMA_PERSIST_DIR, DATASET_DIR
+from config import CHROMA_COLLECTION_NAME, CHROMA_PERSIST_DIR
 from embedding import get_embedding_function
 
 _FAQ_MAX_ITEMS = 5
@@ -64,14 +70,17 @@ def build_embedding_text(product: dict) -> str:
 
 
 def build_full_document(product: dict) -> str:
-    """构建完整商品文档，存入 ChromaDB documents 字段供 LLM 阅读。"""
+    """构建完整商品文档，存入 ChromaDB documents 字段供 LLM 阅读。
+
+    价格、库存、上下架等易变字段不写入文档，线上展示和 LLM 可引用的
+    关键状态由检索后 MySQL 实时补全提供。
+    """
     knowledge = product.get("rag_knowledge") or {}
     sections = [
         f"商品ID：{product['product_id']}",
         f"标题：{product['title']}",
         f"品牌：{product.get('brand', '')}",
         f"类目：{product.get('category', '')} / {product.get('sub_category', '')}",
-        f"基础价格：{product.get('base_price', '')}元",
     ]
 
     marketing = knowledge.get("marketing_description", "")
@@ -98,15 +107,30 @@ def build_full_document(product: dict) -> str:
     return "\n".join(sections)
 
 
-def ingest(dataset_dir: str | None = None):
-    """主入口：加载数据 → 构建 embedding 文本 → 写入 ChromaDB。"""
-    products = load_products(dataset_dir or DATASET_DIR)
+def ingest(dataset_dir: str | None = None, *, reset: bool = True) -> int:
+    """从 MySQL 上架商品构建或更新 ChromaDB 索引。
+
+    Args:
+        dataset_dir: 可选。传入时先把该数据集 upsert 到 MySQL，再从 MySQL
+            读取上架商品写入 ChromaDB。索引写入始终以 MySQL 查询结果为准。
+        reset: True 时清空 collection 后重建；False 时对现有 collection
+            执行 upsert。
+
+    Returns:
+        写入 ChromaDB 的上架商品数量。
+    """
+    from product_store import list_active_products, load_dataset_to_mysql
+
+    if dataset_dir is not None:
+        load_dataset_to_mysql(dataset_dir)
+
+    products = list_active_products()
     if not products:
-        raise RuntimeError(f"未在数据集目录中找到商品 JSON：{dataset_dir or DATASET_DIR}")
+        raise RuntimeError("MySQL products 表中没有上架商品，无法构建 ChromaDB 索引。")
 
     client = chromadb.PersistentClient(path=CHROMA_PERSIST_DIR)
     existing_names = {collection.name for collection in client.list_collections()}
-    if CHROMA_COLLECTION_NAME in existing_names:
+    if reset and CHROMA_COLLECTION_NAME in existing_names:
         client.delete_collection(CHROMA_COLLECTION_NAME)
 
     ef = get_embedding_function()
@@ -124,18 +148,20 @@ def ingest(dataset_dir: str | None = None):
     for product in products:
         pid = product["product_id"]
         all_ids.append(pid)
-        all_embedding_texts.append(build_embedding_text(product))
-        all_documents.append(build_full_document(product))
-        all_metadatas.append(_metadata(product))
+        all_embedding_texts.append(product["embedding_text"])
+        all_documents.append(product["description"])
+        all_metadatas.append(product_to_chroma_metadata(product))
 
     embeddings = ef(all_embedding_texts)
-    collection.add(
+    collection.upsert(
         ids=all_ids,
         embeddings=embeddings,
         documents=all_documents,
         metadatas=all_metadatas,
     )
-    print(f"已导入 {len(products)} 个商品到 ChromaDB collection：{CHROMA_COLLECTION_NAME}")
+    action = "重建" if reset else "更新"
+    print(f"已从 MySQL {action} {len(products)} 个上架商品到 ChromaDB collection：{CHROMA_COLLECTION_NAME}")
+    return len(products)
 
 
 def _build_prefix(product: dict) -> str:
@@ -150,7 +176,8 @@ def _build_sku_text(product: dict) -> str:
     sku_lines = []
     for sku in product.get("skus", []):
         properties = "，".join(f"{k}：{v}" for k, v in sku.get("properties", {}).items())
-        sku_lines.append(f"{properties}，价格：{sku.get('price')}元")
+        if properties:
+            sku_lines.append(properties)
     return "；".join(sku_lines)
 
 
@@ -172,20 +199,14 @@ def _build_sku_properties_summary(product: dict) -> str:
     )
 
 
-def _metadata(product: dict) -> dict:
-    prices = [sku["price"] for sku in product.get("skus", []) if "price" in sku]
-    price = float(product.get("base_price") or min(prices))
+def product_to_chroma_metadata(product: dict) -> dict:
     return {
         "product_id": product["product_id"],
         "title": product["title"],
         "brand": product.get("brand", ""),
         "category": product.get("category", ""),
         "sub_category": product.get("sub_category", ""),
-        "price": price,
-        "min_price": float(min(prices)) if prices else price,
-        "max_price": float(max(prices)) if prices else price,
-        "image_url": _image_url(product),
-        "source_path": product.get("_source_path", ""),
+        "image_url": product.get("image_url") or _image_url(product),
     }
 
 
@@ -196,4 +217,16 @@ def _image_url(product: dict) -> str:
 
 
 if __name__ == "__main__":
-    ingest()
+    parser = argparse.ArgumentParser(description="从 MySQL 构建 ChromaDB 商品索引")
+    parser.add_argument(
+        "--dataset-dir",
+        default=None,
+        help="可选：先把指定数据集目录 upsert 到 MySQL，再基于 MySQL 构建索引",
+    )
+    parser.add_argument(
+        "--upsert",
+        action="store_true",
+        help="不清空 collection，直接 upsert 更新现有 ChromaDB 记录",
+    )
+    args = parser.parse_args()
+    ingest(args.dataset_dir, reset=not args.upsert)

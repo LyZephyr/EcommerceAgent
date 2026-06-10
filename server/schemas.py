@@ -16,10 +16,13 @@ class Product(BaseModel):
     brand: str | None = None
     sub_category: str | None = None
     image_url: str | None = None
+    stock: int | None = None
 
 
 class CartItem(Product):
     quantity: int = Field(ge=1)
+    is_active: bool | None = None
+    unavailable_reason: str | None = None
 
 
 class CartSnapshot(BaseModel):
@@ -27,6 +30,7 @@ class CartSnapshot(BaseModel):
     items: list[CartItem]
     total_quantity: int
     total_price: float
+    messages: list[str] = Field(default_factory=list)
 
 
 class AddCartItemRequest(BaseModel):

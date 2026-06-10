@@ -33,7 +33,8 @@ SYSTEM_PROMPT = """\
 - 寒暄或与购物无关的问题，直接简短回复
 
 ## 回复规则
-- 只基于商品资料回答，不编造不存在的商品、价格、功效、优惠或库存
+- 只基于工具返回的商品资料回答，不编造不存在的商品、价格、功效、优惠或库存
+- 价格、库存、上下架和优惠只能引用工具返回字段；没有字段时不要自行推断
 - 不编造购物车中不存在的商品、价格、优惠、库存或配送承诺
 - 推荐时说明理由、适合人群和需要注意的评价反馈
 - 对比多个商品时，按照用户关心的维度进行对比，如果用户没有说明从哪些方面进行对比，则默认按价格、核心卖点、适合人群、评价反馈和注意事项等维度整合，不直接堆叠原始资料
@@ -287,8 +288,8 @@ def _format_candidate_groups(candidate_groups: list[dict]) -> str:
                     "category": p.get("category"),
                     "sub_category": p.get("sub_category"),
                     "price": p.get("price"),
-                    "min_price": p.get("min_price"),
-                    "max_price": p.get("max_price"),
+                    "stock": p.get("stock"),
+                    "image_url": p.get("image_url"),
                     "document": p.get("document"),
                 }
                 for p in group.get("products", [])
@@ -311,6 +312,7 @@ def _format_candidate_groups_compact(candidate_groups: list[dict]) -> str:
                     "brand": p.get("brand"),
                     "category": p.get("category"),
                     "price": p.get("price"),
+                    "stock": p.get("stock"),
                 }
                 for p in group.get("products", [])
             ],

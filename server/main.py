@@ -1,7 +1,8 @@
 """FastAPI 入口，提供 SSE 流式聊天接口。"""
 
+import asyncio
 import json
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
 
 import cart_store
+import chroma_sync
 import product_store
 from agent import (
     CartEvent,
@@ -32,7 +34,13 @@ from schemas import (
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     product_store.load_dataset_to_mysql()
-    yield
+    sync_task = asyncio.create_task(chroma_sync.run_periodic_sync())
+    try:
+        yield
+    finally:
+        sync_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await sync_task
 
 
 app = FastAPI(title="EcommerceAgent API", lifespan=lifespan)
@@ -66,6 +74,7 @@ async def chat(request: ChatRequest):
                     sub_category=event.product_data.get("sub_category"),
                     price=event.product_data["price"],
                     image_url=event.product_data.get("image_url"),
+                    stock=event.product_data.get("stock"),
                 )
                 cart_store.record_recent_product(
                     conv_id,
@@ -119,7 +128,10 @@ async def add_cart_item(request: AddCartItemRequest):
             status_code=404,
             detail="商品不在当前会话的最近展示商品池中，不能加入购物车。",
         )
-    return cart_store.add_item(conv_id, product, request.quantity)
+    try:
+        return cart_store.add_item(conv_id, product, request.quantity)
+    except cart_store.CartOperationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
 @app.patch("/api/cart/items/{product_id}", response_model=CartSnapshot)
@@ -132,6 +144,8 @@ async def update_cart_item(product_id: str, request: UpdateCartItemRequest):
             status_code=404,
             detail="购物车中不存在该商品。",
         ) from exc
+    except cart_store.CartOperationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
 @app.delete("/api/cart/items/{product_id}", response_model=CartSnapshot)

@@ -25,6 +25,11 @@
                                         │ ┌─────────────┐                      │
                                         │ │ProductStore │──▶ MySQL products    │
                                         │ └─────────────┘                      │
+                                        │ ┌─────────────┐                      │
+                                        │ │ChromaSync   │──▶ MySQL sync_state  │
+                                        │ └──────┬──────┘                      │
+                                        │        ▼                             │
+                                        │     ChromaDB                         │
                                         └──────────────────────────────────────┘
 ```
 
@@ -60,14 +65,25 @@ Phase 1: LLM 决策（非流式）
 
 ### server/config.py
 - 从 `.env` 加载环境变量
-- 导出全局配置常量，包括 API Key、模型端点、MySQL 连接信息、ChromaDB 路径等
+- 在导入 Hugging Face 相关库之前设置 `HF_ENDPOINT`（默认 `https://hf-mirror.com`）与 `HF_HUB_OFFLINE`
+- 导出全局配置常量，包括 API Key、模型端点、MySQL 连接信息、ChromaDB 路径、Embedding 模型名等
 
 ### server/product_store.py
 - MySQL 商品权威源：维护 `products` 表结构和数据访问接口
+- 维护 `sync_state` 表，持久化 ChromaDB 增量同步水位
 - 启动时确保数据库和商品表存在
 - 将 `ecommerce_agent_dataset/` 商品 JSON 转换为商品记录，并按 `product_id` 幂等 upsert 到 MySQL
 - 商品表保存标题、品牌、类目、价格、库存、上下架状态、图片、完整描述、原始 JSON 和 embedding 文本
-- 提供 `get_products_by_ids`、`get_product_by_id`、`get_products_updated_after`、`list_active_products`、`count_products` 等接口，供后续检索补全和 ChromaDB 同步使用
+- 提供 `get_products_by_ids`、`get_product_by_id`、`get_products_updated_after`、`list_active_products`、`count_products`、`get_sync_state`、`set_sync_state` 等接口，供检索补全、购物车校验和 ChromaDB 同步使用
+
+### server/chroma_sync.py
+- ChromaDB 后台增量同步模块
+- `sync_once()` 读取 `sync_state.last_sync_at`，查询 MySQL 增量变更
+- 对新增、修改、重新上架且有库存的商品 upsert 到 ChromaDB
+- 对下架商品从 ChromaDB 删除
+- 成功同步后持久化新的 `last_sync_at`
+- `run_periodic_sync()` 每 3 分钟在后台执行；失败只记录日志，下一轮重试，不阻塞在线请求
+- 可通过 `python chroma_sync.py` 手动执行一次同步，Demo 前可用于强制追平索引
 
 ### server/agent.py
 - Agent 编排核心：单跳工具调用 + 流式生成
@@ -84,7 +100,8 @@ Phase 1: LLM 决策（非流式）
 ### server/tools/cart.py
 - 定义 `add_to_cart`、`remove_from_cart`、`update_cart_item`、`view_cart`、`clear_cart` 工具 schema
 - 将 `product_id`、`recent_position`、`cart_position`、`title_keyword` 等工具参数解析为后端可信商品或购物车条目
-- 加购只从最近展示商品池取商品快照；删除和改数量只操作当前购物车快照
+- 加购先用最近展示商品池确认商品身份，再由 `cart_store` 查询 MySQL 最新状态完成价格、库存和上下架校验
+- 删除只操作当前购物车条目；改数量会重新校验 MySQL 最新库存和上下架状态
 - 指代缺失、位置不存在或关键词匹配多项时返回失败消息，不猜测商品
 
 ### server/tools/retrieve_products.py
@@ -100,27 +117,34 @@ Phase 1: LLM 决策（非流式）
 ### server/cart_store.py
 - 内存购物车存储：`conversation_id -> product_id -> cart item`
 - 最近展示商品池：记录每个会话最近 20 个已通过 `product` SSE 发送的商品卡片快照
-- 购物车加购只接受最近展示商品池中的后端可信商品快照，不从客户端接收标题、价格或图片
+- 最近展示商品池只用于确认商品身份，不作为加购和展示的价格/库存依据
+- 加购和改数量前按 `product_id` 查询 MySQL 最新商品；商品不存在、下架、无库存或库存不足时失败
+- 商品价格变化时使用 MySQL 最新价格，并在购物车快照 `messages` 中返回提示
+- 购物车快照每次重新读取 MySQL 最新价格、库存和上下架状态；下架或不存在商品会从内存购物车移除并返回提示
 - 提供 `record_recent_product`、`get_recent_product`、`get_recent_product_by_position`、`list_recent_products`、`add_item`、`remove_item`、`update_item`、`clear_cart`、`snapshot`
 
 ### server/retriever.py
 - 模块级初始化 ChromaDB PersistentClient，复用连接
 - 接收用户 query 和 intent，用 rewritten_query 做向量检索
-- 结合 category / SKU 价格范围 / brand 的 ChromaDB metadata filter
+- 结合 category / brand 的 ChromaDB metadata filter 做粗召回；预算不使用 ChromaDB 价格 metadata，避免索引滞后导致漏召回
 - 用向量距离、must_have_terms 命中率和 exclude_terms 违规分加权重排
+- 重排后按 `product_id` 批量读取 MySQL 最新商品快照，并过滤 `is_active=false`、`stock<=0`、预算不匹配、类目不匹配和排除品牌
+- 返回给 Agent 和 SSE 的标题、品牌、类目、价格、图片、库存状态来自 MySQL；ChromaDB distance 和 rerank_score 只作为排序信号
 - exclude_terms 对商品正文/元数据和用户评论分段采用指数衰减惩罚（正文 0.25^n，评论 0.15^n），并保护否定上下文
 - 返回 Top-K 商品信息
 
 ### server/ingest.py
 - 扫描 `ecommerce_agent_dataset/` 下所有类目目录
 - 解析商品 JSON 文件
-- 每个商品生成一条紧凑的 embedding 文本（标题+品牌+类目+SKU 属性摘要+卖点+FAQ 问题摘要+评价摘要），控制在 512 token 以内；不加入 `base_price` 和 SKU `price` 字段，营销文案、FAQ 和评价原文不做价格清洗
-- 向量化文本与存储文本分离：embedding 基于紧凑文本计算，ChromaDB documents 存完整商品原文供 LLM 阅读
-- 写入 ChromaDB，每个 product_id 对应一条向量记录
+- 每个商品生成一条紧凑的 embedding 文本（标题+品牌+类目+SKU 属性摘要+卖点+FAQ 问题摘要+评价摘要），控制在 512 token 以内；不加入价格、库存、上下架字段
+- 向量化文本与存储文本分离：`product_store` 将紧凑文本和完整描述写入 MySQL，ChromaDB 初始构建从 MySQL 读取上架商品的 `embedding_text` 和 `description`
+- ChromaDB metadata 只保留 `product_id`、标题、品牌、类目、二级类目、图片等稳定字段，不保存价格和库存作为在线展示依据
+- 支持清空 collection 重建和对现有 collection 执行 upsert，每个 product_id 对应一条向量记录
+- 暴露 `product_to_chroma_metadata()`，供初始构建和后台增量同步复用同一套 metadata 规则
 
 ### server/embedding.py
 - 统一创建 ChromaDB embedding function
-- 使用 `BAAI/bge-base-zh-v1.5`（512 token 窗口）
+- 使用 `EMBEDDING_MODEL`（默认 `BAAI/bge-base-zh-v1.5`，512 token 窗口），经 `config` 配置的 `HF_ENDPOINT` 下载权重
 
 ### server/schemas.py
 - 定义 `ChatRequest`：聊天请求体
@@ -129,6 +153,7 @@ Phase 1: LLM 决策（非流式）
 ### server/main.py
 - FastAPI 应用入口
 - 启动时调用 `product_store.load_dataset_to_mysql()`，确保 MySQL 商品权威源已初始化并加载当前数据集
+- 启动时创建 `chroma_sync.run_periodic_sync()` 后台任务，每 3 分钟从 MySQL 增量同步 ChromaDB
 - 配置 CORS 中间件
 - 挂载 `/assets` 静态资源路径，用于返回商品图片
 - 提供 `GET /health`
@@ -160,13 +185,19 @@ server/main.py startup
     ▼
 ProductStore
     │ 1. CREATE DATABASE IF NOT EXISTS
-    │ 2. CREATE TABLE IF NOT EXISTS products
+    │ 2. CREATE TABLE IF NOT EXISTS products / sync_state
     │ 3. 扫描 ecommerce_agent_dataset/*/data/*.json
     │ 4. 构建 description 与 embedding_text
     │ 5. 按 product_id 幂等 upsert 到 MySQL
     ▼
 MySQL products
     │ 商品价格、库存、上下架状态和主数据权威源
+    │
+    ├─▶ ChromaSync 后台任务
+    │   │ 每 3 分钟读取 updated_at 增量
+    │   │ upsert 上架有库存商品，删除下架商品
+    │   ▼
+    │  ChromaDB 最终一致语义索引
     ▼
 FastAPI 开始服务请求
 ```
@@ -230,13 +261,15 @@ ChatScreen 渲染消息气泡、商品卡片、图片和详情弹窗
 FastAPI /api/cart*
     │ 使用 conversation_id 定位会话
     │ POST /api/cart/items 只接收 product_id + quantity
+    │ 先用最近展示商品池确认 product_id 属于当前会话
     ▼
 CartStore
-    │ 从最近展示商品池取回后端可信商品快照
-    │ 更新当前会话内存购物车
+    │ 查询 MySQL 最新商品状态
+    │ 校验存在、上架、库存和数量
+    │ 使用 MySQL 最新价格更新当前会话内存购物车
     ▼
 CartSnapshot
-    │ items + total_quantity + total_price
+    │ items + total_quantity + total_price + messages
     ▼
 客户端刷新购物车摘要和明细
 ```
@@ -256,6 +289,7 @@ server/tools/cart.py
     ▼
 CartStore
     │ 执行确定性 add / remove / update / snapshot / clear
+    │ add/update/snapshot 读取 MySQL 最新商品状态
     ▼
 CartEvent
     │ /api/chat 转为 SSE event: cart
@@ -264,13 +298,28 @@ TokenEvent
     │ 返回自然语言操作结果或反问
 ```
 
+## 部署方式
+
+开发环境采用「Docker MySQL + 本机 Python 后端」：
+
+| 组件 | 运行方式 | 说明 |
+|------|----------|------|
+| MySQL | `docker compose up -d` | 官方 `mysql:8` 镜像，数据卷 `mysql_data`，映射到本机 `127.0.0.1:3306` |
+| FastAPI 后端 | 本机 venv + uvicorn | ChromaDB、embedding 模型运行在宿主机；模型经 `HF_ENDPOINT`（默认 hf-mirror.com）下载 |
+| Android 客户端 | Android Studio | 连接本机 `8000` 端口 API |
+
+后端按 README 配置 `.env`、执行 `product_store.py` 与 `ingest.py` 后启动；`main.py` lifespan 也会在启动时幂等同步商品到 MySQL。
+`chroma_sync.py` 可手动执行一次增量同步；FastAPI 启动后也会后台每 3 分钟自动同步。
+
 ## 技术栈
 
 | 组件 | 技术 |
 |------|------|
 | 后端框架 | Python 3.10+ / FastAPI |
+| MySQL（开发） | Docker Compose |
 | Agent 编排 | 单跳工具调用（OpenAI Function Calling 协议） |
 | 商品权威源 | MySQL + SQLAlchemy Core + PyMySQL |
+| ChromaDB 同步 | FastAPI 后台任务 + MySQL `sync_state` 水位 |
 | 向量数据库 | ChromaDB（嵌入式） |
 | Embedding | BAAI/bge-base-zh-v1.5（512 token 窗口） |
 | LLM | Doubao-Seed-2.0-lite（Ark API） |

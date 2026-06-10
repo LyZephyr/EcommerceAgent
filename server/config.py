@@ -22,5 +22,9 @@ CHROMA_COLLECTION_NAME = os.environ.get("CHROMA_COLLECTION_NAME", "products")
 DATASET_DIR = str(Path(__file__).resolve().parent.parent / "ecommerce_agent_dataset")
 
 EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "BAAI/bge-base-zh-v1.5")
+HF_ENDPOINT = os.environ.get("HF_ENDPOINT", "https://hf-mirror.com")
+HF_HUB_OFFLINE = os.environ.get("HF_HUB_OFFLINE", "0")
+os.environ["HF_ENDPOINT"] = HF_ENDPOINT
+os.environ["HF_HUB_OFFLINE"] = HF_HUB_OFFLINE
 
 TOP_K = int(os.environ.get("TOP_K", "5"))
