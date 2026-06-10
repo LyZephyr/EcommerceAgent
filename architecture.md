@@ -83,13 +83,16 @@ ReAct loop: LLM 决策（最多 3 步工具调用）
 - 对新增、修改、重新上架且有库存的商品 upsert 到 ChromaDB
 - 对下架商品从 ChromaDB 删除
 - 成功同步后持久化新的 `last_sync_at`
+- 每轮同步完成后输出完成日志；有写入、更新或删除时记录对应商品 ID、标题、库存和更新时间等变更明细
 - `run_periodic_sync()` 每 3 分钟在后台执行；失败只记录日志，下一轮重试，不阻塞在线请求
 - 可通过 `python chroma_sync.py` 手动执行一次同步，Demo 前可用于强制追平索引
+- 手动同步复用统一日志配置，只保留同步统计和异常等关键信息
 
 ### server/agent.py
 - Agent 编排核心：最多 3 步 ReAct 工具循环 + 最终回复解析
 - 存放 `SYSTEM_PROMPT`、`EVAL_INTENT_ADDENDUM` 等 LLM 提示词
 - LLM 接收对话历史 + 工具定义，决定调用工具还是直接回复；工具结果会回填给 LLM 继续决策
+- 记录 LLM 调用耗时，以及每次工具调用的请求、摘要结果和执行耗时，便于排查 Agent 决策链路
 - 本轮使用 `retrieve_products` 后才追加 `<R>` 推荐标记要求，并基于最终回复发送商品卡片
 - 直接回复场景：反问澄清、追问已展示商品、寒暄等
 - 购物车工具场景：执行确定性状态操作，成功时产出 CartEvent；最终自然语言回复由 LLM 基于工具结果生成
@@ -148,6 +151,11 @@ ReAct loop: LLM 决策（最多 3 步工具调用）
 ### server/embedding.py
 - 统一创建 ChromaDB embedding function
 - 使用 `EMBEDDING_MODEL`（默认 `BAAI/bge-base-zh-v1.5`，512 token 窗口），经 `config` 配置的 `HF_ENDPOINT` 下载权重
+- 进程内单例缓存 SentenceTransformer embedding function，并关闭 embedding 进度条，避免请求和后台同步重复加载模型或污染日志
+
+### server/logging_config.py
+- 后端统一日志配置
+- 保持项目自身 INFO 级观测日志，压低 `httpx`、Hugging Face、SentenceTransformers、Transformers 等第三方库噪声
 
 ### server/schemas.py
 - 定义 `ChatRequest`：聊天请求体
@@ -155,6 +163,7 @@ ReAct loop: LLM 决策（最多 3 步工具调用）
 
 ### server/main.py
 - FastAPI 应用入口
+- 启动时应用统一日志配置
 - 启动时调用 `product_store.load_dataset_to_mysql()`，确保 MySQL 商品权威源已初始化并加载当前数据集
 - 启动时创建 `chroma_sync.run_periodic_sync()` 后台任务，每 3 分钟从 MySQL 增量同步 ChromaDB
 - 配置 CORS 中间件

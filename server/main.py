@@ -22,6 +22,7 @@ from agent import (
 )
 from config import DATASET_DIR
 from conversation import get_or_create_id
+from logging_config import configure_logging
 from schemas import (
     AddCartItemRequest,
     CartSnapshot,
@@ -29,6 +30,8 @@ from schemas import (
     Product,
     UpdateCartItemRequest,
 )
+
+configure_logging()
 
 
 @asynccontextmanager

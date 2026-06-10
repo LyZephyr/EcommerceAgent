@@ -9,7 +9,9 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
+import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
@@ -18,6 +20,8 @@ from openai import AsyncOpenAI
 import conversation
 from config import ARK_API_KEY, ARK_BASE_URL, ARK_MODEL
 from tools import TOOL_DEFINITIONS, execute as execute_tool
+
+logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """\
 你是一个专业、克制的电商导购助手。
@@ -43,6 +47,8 @@ SYSTEM_PROMPT = """\
 - 回答自然简洁"""
 
 _MAX_TOOL_STEPS = 3
+_LOG_ARGUMENTS_MAX_CHARS = 4000
+_LOG_TOOL_RESULT_MAX_CHARS = 100
 
 EVAL_INTENT_ADDENDUM = """
 
@@ -120,8 +126,10 @@ async def run_turn(
     used_retrieve_tool = False
     generation_instruction_added = False
 
-    for _ in range(_MAX_TOOL_STEPS):
-        response = await client.chat.completions.create(
+    for step_index in range(_MAX_TOOL_STEPS):
+        response = await _create_chat_completion(
+            client,
+            label=f"react_step_{step_index + 1}",
             model=ARK_MODEL,
             messages=messages,
             tools=TOOL_DEFINITIONS,
@@ -151,10 +159,13 @@ async def run_turn(
         for tool_call in assistant_msg.tool_calls:
             arguments = json.loads(tool_call.function.arguments or "{}")
             tool_name = tool_call.function.name
+            _log_tool_request(tool_call.id, tool_name, arguments)
+            tool_start = time.perf_counter()
 
             if _is_retrieve_tool(tool_name):
                 yield StatusEvent("正在检索商品...")
                 candidate_groups = execute_tool(tool_name, arguments)
+                _log_tool_result(tool_call.id, tool_name, candidate_groups, tool_start)
                 used_retrieve_tool = True
                 retrieve_tool_used_this_step = True
                 candidates_by_id.update(
@@ -168,12 +179,14 @@ async def run_turn(
             elif _is_cart_tool(tool_name):
                 yield StatusEvent(_cart_status(tool_name))
                 result = execute_tool(tool_name, arguments, conversation_id)
+                _log_tool_result(tool_call.id, tool_name, result, tool_start)
                 if result.get("success") and result.get("cart"):
                     yield CartEvent(result["cart"])
                 tool_content = json.dumps(result, ensure_ascii=False)
                 history_content = tool_content
             else:
                 result = execute_tool(tool_name, arguments)
+                _log_tool_result(tool_call.id, tool_name, result, tool_start)
                 tool_content = json.dumps(result, ensure_ascii=False)
                 history_content = tool_content
 
@@ -195,7 +208,9 @@ async def run_turn(
             messages.append({"role": "system", "content": _GENERATION_ADDENDUM})
             generation_instruction_added = True
 
-    response = await client.chat.completions.create(
+    response = await _create_chat_completion(
+        client,
+        label="final_after_tool_limit",
         model=ARK_MODEL,
         messages=messages
         + [
@@ -218,6 +233,61 @@ async def run_turn(
         used_retrieve_tool,
     ):
         yield event
+
+
+async def _create_chat_completion(
+    client: AsyncOpenAI,
+    *,
+    label: str,
+    **kwargs,
+):
+    start = time.perf_counter()
+    response = await client.chat.completions.create(**kwargs)
+    elapsed_ms = _elapsed_ms(start)
+    finish_reason = response.choices[0].finish_reason if response.choices else None
+    logger.info(
+        "llm_call label=%s model=%s duration_ms=%.2f finish_reason=%s",
+        label,
+        kwargs.get("model"),
+        elapsed_ms,
+        finish_reason,
+    )
+    return response
+
+
+def _log_tool_request(tool_call_id: str, tool_name: str, arguments: dict) -> None:
+    logger.info(
+        "tool_call_request id=%s name=%s arguments=%s",
+        tool_call_id,
+        tool_name,
+        _json_for_log(arguments, _LOG_ARGUMENTS_MAX_CHARS),
+    )
+
+
+def _log_tool_result(
+    tool_call_id: str,
+    tool_name: str,
+    result,
+    started_at: float,
+) -> None:
+    logger.info(
+        "tool_call_result id=%s name=%s duration_ms=%.2f result=%s",
+        tool_call_id,
+        tool_name,
+        _elapsed_ms(started_at),
+        _json_for_log(result, _LOG_TOOL_RESULT_MAX_CHARS),
+    )
+
+
+def _elapsed_ms(started_at: float) -> float:
+    return (time.perf_counter() - started_at) * 1000
+
+
+def _json_for_log(value, max_chars: int) -> str:
+    text = json.dumps(value, ensure_ascii=False, default=str)
+    if len(text) <= max_chars:
+        return text
+    return f"{text[:max_chars]}...<truncated {len(text) - max_chars} chars>"
 
 
 def _tool_call_message(tool_calls) -> dict:

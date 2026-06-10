@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import json
+import logging
+import time
 
 from openai import AsyncOpenAI
 
 from config import ARK_API_KEY, ARK_BASE_URL, ARK_MODEL, TOP_K
 from retriever import retrieve
+
+logger = logging.getLogger(__name__)
 
 TOOL_DEFINITION = {
     "type": "function",
@@ -100,6 +104,7 @@ async def parse_intent(query: str) -> dict:
     from agent import EVAL_INTENT_ADDENDUM, SYSTEM_PROMPT
 
     client = AsyncOpenAI(api_key=ARK_API_KEY, base_url=ARK_BASE_URL)
+    started_at = time.perf_counter()
     response = await client.chat.completions.create(
         model=ARK_MODEL,
         messages=[
@@ -109,6 +114,12 @@ async def parse_intent(query: str) -> dict:
         tools=[TOOL_DEFINITION],
         tool_choice={"type": "function", "function": {"name": "retrieve_products"}},
         temperature=0.3,
+    )
+    logger.info(
+        "llm_call label=parse_intent model=%s duration_ms=%.2f finish_reason=%s",
+        ARK_MODEL,
+        (time.perf_counter() - started_at) * 1000,
+        response.choices[0].finish_reason if response.choices else None,
     )
     msg = response.choices[0].message
     if not msg.tool_calls:

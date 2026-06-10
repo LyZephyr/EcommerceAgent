@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
 import time
 from datetime import datetime
@@ -18,6 +19,7 @@ import product_store
 from config import CHROMA_COLLECTION_NAME, CHROMA_PERSIST_DIR
 from embedding import get_embedding_function
 from ingest import product_to_chroma_metadata
+from logging_config import configure_logging
 
 SYNC_STATE_NAME = "chroma_products"
 SYNC_INTERVAL_SECONDS = 180
@@ -65,14 +67,10 @@ def sync_once() -> dict:
             if changed_products
             else last_sync_at.isoformat()
         ),
+        "upserted_product_ids": [product["product_id"] for product in active_products],
+        "deleted_product_ids": inactive_product_ids,
     }
-    logger.info(
-        "Chroma sync scanned=%s upserted=%s deleted=%s elapsed=%ss",
-        stats["scanned"],
-        stats["upserted"],
-        stats["deleted"],
-        stats["elapsed_seconds"],
-    )
+    _log_sync_completed(stats, active_products, inactive_product_ids)
     return stats
 
 
@@ -124,6 +122,48 @@ def _delete_products(collection, product_ids: list[str]) -> int:
     return len(product_ids)
 
 
+def _log_sync_completed(
+    stats: dict,
+    upserted_products: list[dict],
+    deleted_product_ids: list[str],
+) -> None:
+    logger.info(
+        "ChromaDB 同步完成 scanned=%s upserted=%s deleted=%s elapsed=%ss last_sync_at=%s",
+        stats["scanned"],
+        stats["upserted"],
+        stats["deleted"],
+        stats["elapsed_seconds"],
+        stats["last_sync_at"],
+    )
+    if upserted_products:
+        logger.info(
+            "ChromaDB 同步写入/更新 products=%s",
+            json.dumps(
+                [_product_change_for_log(product) for product in upserted_products],
+                ensure_ascii=False,
+                default=str,
+            ),
+        )
+    if deleted_product_ids:
+        logger.info(
+            "ChromaDB 同步删除 product_ids=%s",
+            json.dumps(deleted_product_ids, ensure_ascii=False),
+        )
+
+
+def _product_change_for_log(product: dict) -> dict:
+    updated_at = product.get("updated_at")
+    return {
+        "product_id": product.get("product_id"),
+        "title": product.get("title"),
+        "category": product.get("category"),
+        "stock": product.get("stock"),
+        "updated_at": updated_at.isoformat()
+        if hasattr(updated_at, "isoformat")
+        else updated_at,
+    }
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="手动执行 MySQL 到 ChromaDB 的增量同步")
     parser.add_argument(
@@ -133,7 +173,7 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.INFO)
+    configure_logging()
     if args.loop:
         asyncio.run(run_periodic_sync())
     else:
