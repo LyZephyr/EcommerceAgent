@@ -1,9 +1,10 @@
-"""内存购物车与最近展示商品池。"""
+"""内存购物车与近期展示商品池。"""
 
 from __future__ import annotations
 
 from collections import deque
 from copy import deepcopy
+from datetime import UTC, datetime
 from math import isclose
 
 import product_store
@@ -11,7 +12,7 @@ import product_store
 _RECENT_PRODUCT_LIMIT = 20
 
 _carts: dict[str, dict[str, dict]] = {}
-_recent_products: dict[str, deque[dict]] = {}
+_recent_product_entries: dict[str, deque[dict]] = {}
 
 
 class CartOperationError(ValueError):
@@ -21,44 +22,66 @@ class CartOperationError(ValueError):
 
 
 def record_recent_product(conversation_id: str, product: dict) -> None:
-    product_snapshot = _product_snapshot(product)
-    products = _recent_products.setdefault(
+    entry = _recent_product_entry(product)
+    entries = _recent_product_entries.setdefault(
         conversation_id,
         deque(maxlen=_RECENT_PRODUCT_LIMIT),
     )
-    product_id = product_snapshot["product_id"]
-    remaining = [item for item in products if item["product_id"] != product_id]
-    products.clear()
-    products.extend(remaining)
-    products.append(product_snapshot)
+    product_id = entry["product_id"]
+    remaining = [item for item in entries if item["product_id"] != product_id]
+    entries.clear()
+    entries.extend(remaining)
+    entries.append(entry)
 
 
-def get_recent_product(conversation_id: str, product_id: str) -> dict | None:
-    for product in _recent_products.get(conversation_id, ()):
-        if product["product_id"] == product_id:
-            return deepcopy(product)
+def get_recent_product_entry(conversation_id: str, product_id: str) -> dict | None:
+    for entry in _recent_product_entries.get(conversation_id, ()):
+        if entry["product_id"] == product_id:
+            return deepcopy(entry)
     return None
 
 
-def get_recent_product_by_position(conversation_id: str, position: int) -> dict | None:
-    if position < 1:
-        return None
-    products = list(_recent_products.get(conversation_id, ()))
-    index = position - 1
-    if index >= len(products):
-        return None
-    return deepcopy(products[index])
+def list_recent_product_entries(conversation_id: str) -> list[dict]:
+    return [
+        deepcopy(entry)
+        for entry in reversed(_recent_product_entries.get(conversation_id, ()))
+    ]
 
 
 def list_recent_products(conversation_id: str) -> list[dict]:
-    return [deepcopy(product) for product in _recent_products.get(conversation_id, ())]
+    entries = list_recent_product_entries(conversation_id)
+    product_ids = [entry["product_id"] for entry in entries]
+    products = product_store.get_products_by_ids(product_ids)
+    products_by_id = {product["product_id"]: product for product in products}
+    recent_products = []
+
+    for entry in entries:
+        product = products_by_id.get(entry["product_id"])
+        if product is None:
+            continue
+        recent_products.append(
+            _product_snapshot(product)
+            | {
+                "is_active": bool(product.get("is_active")),
+                "displayed_price": entry["displayed_price"],
+                "displayed_at": entry["displayed_at"],
+            }
+        )
+    return recent_products
 
 
-def add_item(conversation_id: str, product: dict, quantity: int = 1) -> dict:
+def add_item(conversation_id: str, product_id: str, quantity: int = 1) -> dict:
     if quantity < 1:
         raise CartOperationError("加购数量必须至少为 1。", status_code=422)
 
-    product_snapshot = _active_product_snapshot(product["product_id"])
+    recent_entry = get_recent_product_entry(conversation_id, str(product_id))
+    if recent_entry is None:
+        raise CartOperationError(
+            "商品不在当前会话的近期展示商品池中，不能加入购物车。",
+            status_code=404,
+        )
+
+    product_snapshot = _active_product_snapshot(product_id)
     cart = _carts.setdefault(conversation_id, {})
     product_id = product_snapshot["product_id"]
     current_quantity = cart.get(product_id, {}).get("quantity", 0)
@@ -71,7 +94,7 @@ def add_item(conversation_id: str, product: dict, quantity: int = 1) -> dict:
         cart[product_id] = {"product_id": product_id, "quantity": quantity}
 
     cart_snapshot = snapshot(conversation_id)
-    if _price_changed(product, product_snapshot):
+    if _price_changed(recent_entry, product_snapshot):
         cart_snapshot["messages"].append(
             f"「{product_snapshot['title']}」价格已更新为 ¥{product_snapshot['price']:.2f}。"
         )
@@ -135,6 +158,14 @@ def _product_snapshot(product: dict) -> dict:
     }
 
 
+def _recent_product_entry(product: dict) -> dict:
+    return {
+        "product_id": str(product["product_id"]),
+        "displayed_price": float(product["price"]),
+        "displayed_at": datetime.now(UTC).isoformat(),
+    }
+
+
 def _active_product_snapshot(product_id: str) -> dict:
     product = product_store.get_product_by_id(str(product_id))
     if product is None:
@@ -160,7 +191,7 @@ def _ensure_stock(product: dict, quantity: int) -> None:
 
 def _price_changed(old_product: dict, latest_product: dict) -> bool:
     return not isclose(
-        float(old_product.get("price") or 0),
+        float(old_product.get("displayed_price") or 0),
         float(latest_product["price"]),
         rel_tol=0,
         abs_tol=0.001,

@@ -10,6 +10,7 @@ TOOL_DEFINITIONS = [RETRIEVE_TOOL_DEFINITION, *CART_TOOL_DEFINITIONS]
 _EXECUTORS = {"retrieve_products": _retrieve_execute}
 _CART_TOOL_NAMES = {
     "add_to_cart",
+    "list_recent_products",
     "remove_from_cart",
     "update_cart_item",
     "view_cart",

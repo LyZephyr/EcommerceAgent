@@ -1,9 +1,9 @@
-"""Agent 编排：单跳工具调用 + 流式生成。
+"""Agent 编排：ReAct 工具循环 + 最终回复解析。
 
 流程：
 1. LLM 接收对话历史 + 工具定义，决定调用工具还是直接回复
-2. 若调用工具：执行检索 → 将商品资料注入上下文 → LLM 流式生成推荐回复
-3. 若直接回复：一次性返回文本（反问、追问已展示商品、寒暄等）
+2. 工具结果回填给 LLM，最多执行 3 步工具调用
+3. 最终回复解析商品推荐、结构化对比和购物车事件
 """
 
 from __future__ import annotations
@@ -25,7 +25,9 @@ SYSTEM_PROMPT = """\
 ## 工具使用规则
 - 当用户有新的商品推荐、搜索或筛选需求时，调用 retrieve_products 工具检索商品库
 - 当用户明确要求加购、删除、改数量、查看或清空购物车时，调用对应购物车工具
-- 购物车加购中的“第一个”“第二个”“刚才那款”优先指向最近展示的商品；删除和改数量中的“第一个”“第二个”优先指向购物车明细
+- 加购工具必须使用明确的 product_ids。批量检索、批量加购等需求应尽量使用批量参数一次完成，不要用单参数重复调用多次工具
+- 当对话过长导致你无法确定用户指代的历史商品时，可以调用 list_recent_products 补充记忆；如果用户表达本身含糊（如“这个”“那个”无法定位），必须先追问，不要调用工具猜测
+- 删除和改数量中的“第一个”“第二个”优先指向购物车明细
 - 购物车指代不明确时必须先反问，不要猜测用户想操作哪款商品
 - 当用户追问之前已推荐商品的细节或对比时，基于对话历史直接回答，不需要重新检索
 - 当用户需求过于模糊、缺少关键偏好时，先反问用户以明确需求方向，不要直接检索
@@ -39,6 +41,14 @@ SYSTEM_PROMPT = """\
 - 推荐时说明理由、适合人群和需要注意的评价反馈
 - 对比多个商品时，按照用户关心的维度进行对比，如果用户没有说明从哪些方面进行对比，则默认按价格、核心卖点、适合人群、评价反馈和注意事项等维度整合，不直接堆叠原始资料
 - 回答自然简洁"""
+
+_MAX_TOOL_STEPS = 3
+
+EVAL_INTENT_ADDENDUM = """
+
+## 离线评估说明（仅本次调用生效）
+- 本次为单条检索 query 的离线评估，必须调用 retrieve_products，且 requests 中只填写 1 个 request
+- 输入均为明确的商品推荐或搜索需求，直接检索即可，无需反问或调用购物车工具"""
 
 _GENERATION_ADDENDUM = """
 
@@ -100,155 +110,172 @@ async def run_turn(
 
     client = AsyncOpenAI(api_key=ARK_API_KEY, base_url=ARK_BASE_URL)
 
-    # Phase 1: LLM 决定调用工具还是直接回复
+    messages = [
+        {
+            "role": "system",
+            "content": SYSTEM_PROMPT + _DIRECT_COMPARE_INSTRUCTION,
+        }
+    ] + history
+    candidates_by_id: dict[str, dict] = {}
+    used_retrieve_tool = False
+    generation_instruction_added = False
+
+    for _ in range(_MAX_TOOL_STEPS):
+        response = await client.chat.completions.create(
+            model=ARK_MODEL,
+            messages=messages,
+            tools=TOOL_DEFINITIONS,
+            temperature=0.3,
+        )
+        assistant_msg = response.choices[0].message
+
+        if not assistant_msg.tool_calls:
+            _append_final_response(
+                conversation_id,
+                assistant_msg.content or "",
+                used_retrieve_tool,
+            )
+            async for event in _events_from_final_response(
+                assistant_msg.content or "",
+                candidates_by_id,
+                used_retrieve_tool,
+            ):
+                yield event
+            return
+
+        tool_call_msg = _tool_call_message(assistant_msg.tool_calls)
+        messages.append(tool_call_msg)
+        conversation.append(conversation_id, tool_call_msg)
+
+        retrieve_tool_used_this_step = False
+        for tool_call in assistant_msg.tool_calls:
+            arguments = json.loads(tool_call.function.arguments or "{}")
+            tool_name = tool_call.function.name
+
+            if _is_retrieve_tool(tool_name):
+                yield StatusEvent("正在检索商品...")
+                candidate_groups = execute_tool(tool_name, arguments)
+                used_retrieve_tool = True
+                retrieve_tool_used_this_step = True
+                candidates_by_id.update(
+                    {
+                        product["product_id"]: product
+                        for product in _flatten_candidate_groups(candidate_groups)
+                    }
+                )
+                tool_content = _format_candidate_groups(candidate_groups)
+                history_content = _format_candidate_groups_compact(candidate_groups)
+            elif _is_cart_tool(tool_name):
+                yield StatusEvent(_cart_status(tool_name))
+                result = execute_tool(tool_name, arguments, conversation_id)
+                if result.get("success") and result.get("cart"):
+                    yield CartEvent(result["cart"])
+                tool_content = json.dumps(result, ensure_ascii=False)
+                history_content = tool_content
+            else:
+                result = execute_tool(tool_name, arguments)
+                tool_content = json.dumps(result, ensure_ascii=False)
+                history_content = tool_content
+
+            tool_msg = {
+                "role": "tool",
+                "tool_call_id": tool_call.id,
+                "content": tool_content,
+            }
+            messages.append(tool_msg)
+            conversation.append(
+                conversation_id,
+                {
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "content": history_content,
+                },
+            )
+        if retrieve_tool_used_this_step and not generation_instruction_added:
+            messages.append({"role": "system", "content": _GENERATION_ADDENDUM})
+            generation_instruction_added = True
+
     response = await client.chat.completions.create(
         model=ARK_MODEL,
-        messages=[{"role": "system", "content": SYSTEM_PROMPT + _DIRECT_COMPARE_INSTRUCTION}]
-        + history,
-        tools=TOOL_DEFINITIONS,
+        messages=messages
+        + [
+            {
+                "role": "system",
+                "content": "工具调用次数已达上限，请基于已有工具结果直接回复用户；如果信息仍不足，请追问用户。",
+            }
+        ],
         temperature=0.3,
     )
-    assistant_msg = response.choices[0].message
+    content = response.choices[0].message.content or ""
+    _append_final_response(
+        conversation_id,
+        content,
+        used_retrieve_tool,
+    )
+    async for event in _events_from_final_response(
+        content,
+        candidates_by_id,
+        used_retrieve_tool,
+    ):
+        yield event
 
-    if not assistant_msg.tool_calls:
-        content = assistant_msg.content or ""
-        compare_payload, clean_content = _extract_compare_tag(content)
-        conversation.append(
-            conversation_id, {"role": "assistant", "content": clean_content}
-        )
-        if compare_payload:
-            yield CompareEvent(compare_payload)
-        yield TokenEvent(clean_content)
-        return
 
-    # Phase 2: 执行工具 → 流式生成推荐回复
-    tool_call = assistant_msg.tool_calls[0]
-    arguments = json.loads(tool_call.function.arguments)
-    tool_name = tool_call.function.name
-
-    tool_call_msg = {
+def _tool_call_message(tool_calls) -> dict:
+    return {
         "role": "assistant",
         "tool_calls": [
             {
                 "id": tool_call.id,
                 "type": "function",
                 "function": {
-                    "name": tool_name,
+                    "name": tool_call.function.name,
                     "arguments": tool_call.function.arguments,
                 },
             }
+            for tool_call in tool_calls
         ],
     }
 
-    if _is_cart_tool(tool_name):
-        yield StatusEvent("正在更新购物车...")
-        result = execute_tool(tool_name, arguments, conversation_id)
-        conversation.append(conversation_id, tool_call_msg)
-        conversation.append(
-            conversation_id,
-            {
-                "role": "tool",
-                "tool_call_id": tool_call.id,
-                "content": json.dumps(result, ensure_ascii=False),
-            },
-        )
-        message = result["message"]
-        conversation.append(conversation_id, {"role": "assistant", "content": message})
-        if result.get("success") and result.get("cart"):
-            yield CartEvent(result["cart"])
-        yield TokenEvent(message)
-        return
 
-    yield StatusEvent("正在检索商品...")
-    candidate_groups = execute_tool(tool_name, arguments)
-    candidates = _flatten_candidate_groups(candidate_groups)
-    candidates_by_id = {p["product_id"]: p for p in candidates}
-
-    full_tool_result = {
-        "role": "tool",
-        "tool_call_id": tool_call.id,
-        "content": _format_candidate_groups(candidate_groups),
-    }
-
-    gen_messages = (
-        [{"role": "system", "content": SYSTEM_PROMPT + _GENERATION_ADDENDUM}]
-        + history
-        + [tool_call_msg, full_tool_result]
-    )
-
-    # 在会话历史中存紧凑版本，避免上下文膨胀
-    conversation.append(conversation_id, tool_call_msg)
+def _append_final_response(
+    conversation_id: str,
+    content: str,
+    used_retrieve_tool: bool,
+) -> None:
+    if used_retrieve_tool:
+        _, _, clean_text = _strip_generation_hidden_prefix(content)
+    else:
+        _, clean_text = _extract_compare_tag(content)
+    if not clean_text.strip():
+        raise RuntimeError(f"LLM 生成了空的可见回复：{content!r}")
     conversation.append(
         conversation_id,
-        {
-            "role": "tool",
-            "tool_call_id": tool_call.id,
-            "content": _format_candidate_groups_compact(candidate_groups),
-        },
+        {"role": "assistant", "content": clean_text.strip()},
     )
 
-    stream = await client.chat.completions.create(
-        model=ARK_MODEL,
-        messages=gen_messages,
-        temperature=0.3,
-        stream=True,
-    )
 
-    full_response: list[str] = []
-    hidden_prefix_parsed = False
-    buffer: list[str] = []
-
-    async for chunk in stream:
-        token = chunk.choices[0].delta.content
-        if not token:
-            continue
-
-        full_response.append(token)
-
-        if not hidden_prefix_parsed:
-            buffer.append(token)
-            joined = "".join(buffer)
-            hidden_prefix = _extract_generation_hidden_prefix(joined)
-            if hidden_prefix:
-                hidden_prefix_parsed = True
-                recommended_ids, compare_payload, remainder = hidden_prefix
-                for pid in recommended_ids:
-                    if pid in candidates_by_id:
-                        yield ProductEvent(pid, candidates_by_id[pid])
-                if compare_payload:
-                    yield CompareEvent(compare_payload)
-                if remainder.strip():
-                    yield TokenEvent(remainder)
-            elif len(joined) > 2000:
-                hidden_prefix_parsed = True
-                yield TokenEvent(joined)
-            continue
-
-        yield TokenEvent(token)
-
-    if not hidden_prefix_parsed:
-        joined = "".join(buffer)
-        hidden_prefix = _extract_generation_hidden_prefix(joined, final=True)
-        if hidden_prefix:
-            recommended_ids, compare_payload, text = hidden_prefix
-        else:
-            recommended_ids, compare_payload, text = [], None, joined
+async def _events_from_final_response(
+    content: str,
+    candidates_by_id: dict[str, dict],
+    used_retrieve_tool: bool,
+) -> AsyncIterator[ProductEvent | CompareEvent | TokenEvent]:
+    if used_retrieve_tool:
+        recommended_ids, compare_payload, clean_text = _strip_generation_hidden_prefix(
+            content
+        )
         for pid in recommended_ids:
             if pid in candidates_by_id:
                 yield ProductEvent(pid, candidates_by_id[pid])
         if compare_payload:
             yield CompareEvent(compare_payload)
-        if text.strip():
-            yield TokenEvent(text)
+        if clean_text.strip():
+            yield TokenEvent(clean_text)
+        return
 
-    raw_response = "".join(full_response)
-    _, _, clean_text = _strip_generation_hidden_prefix(raw_response)
-    if not clean_text.strip():
-        raise RuntimeError(f"LLM 生成了空的可见回复：{raw_response!r}")
-    conversation.append(
-        conversation_id,
-        {"role": "assistant", "content": clean_text.strip()},
-    )
+    compare_payload, clean_text = _extract_compare_tag(content)
+    if compare_payload:
+        yield CompareEvent(compare_payload)
+    yield TokenEvent(clean_text)
 
 
 def _flatten_candidate_groups(candidate_groups: list[dict]) -> list[dict]:
@@ -267,11 +294,22 @@ def _flatten_candidate_groups(candidate_groups: list[dict]) -> list[dict]:
 def _is_cart_tool(tool_name: str) -> bool:
     return tool_name in {
         "add_to_cart",
+        "list_recent_products",
         "remove_from_cart",
         "update_cart_item",
         "view_cart",
         "clear_cart",
     }
+
+
+def _is_retrieve_tool(tool_name: str) -> bool:
+    return tool_name == "retrieve_products"
+
+
+def _cart_status(tool_name: str) -> str:
+    if tool_name == "list_recent_products":
+        return "正在读取近期商品..."
+    return "正在更新购物车..."
 
 
 def _format_candidate_groups(candidate_groups: list[dict]) -> str:

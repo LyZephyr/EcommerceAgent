@@ -97,22 +97,18 @@ def execute(arguments: dict) -> list[dict]:
 
 async def parse_intent(query: str) -> dict:
     """通过强制工具调用提取检索意图（供离线评估使用）。"""
+    from agent import EVAL_INTENT_ADDENDUM, SYSTEM_PROMPT
+
     client = AsyncOpenAI(api_key=ARK_API_KEY, base_url=ARK_BASE_URL)
     response = await client.chat.completions.create(
         model=ARK_MODEL,
         messages=[
-            {
-                "role": "system",
-                "content": (
-                    "你是电商导购助手。请调用 retrieve_products 工具来检索用户需要的商品。"
-                    "离线评估每次只评估一条 query，因此 requests 中只能填写 1 个 request。"
-                ),
-            },
+            {"role": "system", "content": SYSTEM_PROMPT + EVAL_INTENT_ADDENDUM},
             {"role": "user", "content": query},
         ],
         tools=[TOOL_DEFINITION],
         tool_choice={"type": "function", "function": {"name": "retrieve_products"}},
-        temperature=0,
+        temperature=0.3,
     )
     msg = response.choices[0].message
     if not msg.tool_calls:

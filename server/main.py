@@ -122,14 +122,8 @@ async def get_cart(conversation_id: str | None = Query(default=None)):
 @app.post("/api/cart/items", response_model=CartSnapshot)
 async def add_cart_item(request: AddCartItemRequest):
     conv_id = get_or_create_id(request.conversation_id)
-    product = cart_store.get_recent_product(conv_id, request.product_id)
-    if product is None:
-        raise HTTPException(
-            status_code=404,
-            detail="商品不在当前会话的最近展示商品池中，不能加入购物车。",
-        )
     try:
-        return cart_store.add_item(conv_id, product, request.quantity)
+        return cart_store.add_item(conv_id, request.product_id, request.quantity)
     except cart_store.CartOperationError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 

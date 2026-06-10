@@ -17,7 +17,7 @@ from agent import CartEvent, TokenEvent  # noqa: E402
 from tools import execute  # noqa: E402
 
 
-def test_cart_tool_adds_recent_product_by_position(monkeypatch):
+def test_cart_tool_adds_recent_products_by_ids(monkeypatch):
     conversation_id = uuid4().hex
     products = {
         "p-1": _product("p-1", title="第一款"),
@@ -29,14 +29,15 @@ def test_cart_tool_adds_recent_product_by_position(monkeypatch):
 
     result = execute(
         "add_to_cart",
-        {"recent_position": 2, "quantity": 2},
+        {"product_ids": ["p-1", "p-2"], "quantity": 2},
         conversation_id,
     )
 
     assert result["success"] is True
-    assert result["cart"]["items"][0]["product_id"] == "p-2"
+    assert [item["product_id"] for item in result["cart"]["items"]] == ["p-1", "p-2"]
     assert result["cart"]["items"][0]["quantity"] == 2
-    assert result["cart"]["total_quantity"] == 2
+    assert result["cart"]["items"][1]["quantity"] == 2
+    assert result["cart"]["total_quantity"] == 4
 
 
 def test_cart_tool_updates_and_removes_by_keyword(monkeypatch):
@@ -44,7 +45,7 @@ def test_cart_tool_updates_and_removes_by_keyword(monkeypatch):
     product = _product("p-1", title="轻量蓝牙耳机", category="数码电子")
     _install_product_store(monkeypatch, {"p-1": product})
     cart_store.record_recent_product(conversation_id, product)
-    execute("add_to_cart", {"title_keyword": "耳机"}, conversation_id)
+    execute("add_to_cart", {"product_ids": ["p-1"]}, conversation_id)
 
     updated = execute(
         "update_cart_item",
@@ -59,7 +60,7 @@ def test_cart_tool_updates_and_removes_by_keyword(monkeypatch):
     assert removed["cart"]["items"] == []
 
 
-def test_cart_tool_rejects_ambiguous_recent_reference(monkeypatch):
+def test_cart_tool_requires_product_ids(monkeypatch):
     conversation_id = uuid4().hex
     products = {
         "p-1": _product("p-1", title="第一款"),
@@ -72,8 +73,25 @@ def test_cart_tool_rejects_ambiguous_recent_reference(monkeypatch):
     result = execute("add_to_cart", {}, conversation_id)
 
     assert result["success"] is False
-    assert "哪一款" in result["message"]
+    assert "商品 ID" in result["message"]
     assert cart_store.snapshot(conversation_id)["items"] == []
+
+
+def test_cart_tool_lists_recent_products_newest_first(monkeypatch):
+    conversation_id = uuid4().hex
+    products = {
+        "p-1": _product("p-1", title="早些展示", price=10),
+        "p-2": _product("p-2", title="最近展示", price=20),
+    }
+    _install_product_store(monkeypatch, products)
+    cart_store.record_recent_product(conversation_id, products["p-1"])
+    cart_store.record_recent_product(conversation_id, products["p-2"])
+
+    result = execute("list_recent_products", {}, conversation_id)
+
+    assert result["success"] is True
+    assert [product["product_id"] for product in result["products"]] == ["p-2", "p-1"]
+    assert result["products"][0]["displayed_price"] == 20
 
 
 def test_chat_stream_emits_cart_event(monkeypatch):

@@ -8,7 +8,7 @@
 │ Kotlin/Compose   │   POST /api/chat   │                                      │
 │                  │ ◀────────────────  │ ┌─────────────┐   ┌──────────────┐   │
 │ ChatViewModel    │ product/compare/   │ │    Agent     │──▶│ Doubao API   │   │
-│                  │ cart/token/done    │ │ (单跳工具调用)│   └──────────────┘   │
+│                  │ cart/token/done    │ │ (ReAct loop) │   └──────────────┘   │
 │ ChatApiService   │ /status            │ └──────┬──────┘                       │
 │ ChatScreen       │                    │        │ tool_calls                   │
 └──────────────────┘                    │        ▼                             │
@@ -39,7 +39,7 @@
 用户消息 + 对话历史
     │
     ▼
-Phase 1: LLM 决策（非流式）
+ReAct loop: LLM 决策（最多 3 步工具调用）
     │
     ├─ 无 tool_calls → 直接回复
     │   适用于：反问澄清 / 追问已展示商品 / 基于历史的对比 / 寒暄
@@ -47,8 +47,9 @@ Phase 1: LLM 决策（非流式）
     │   yield CompareEvent(可选) + TokenEvent(全文)
     │
     ├─ 有 tool_calls → 调用购物车工具
-    │   适用于：自然语言加购 / 删除 / 改数量 / 查看 / 清空购物车
-    │   yield StatusEvent + CartEvent(成功时) + TokenEvent
+    │   适用于：自然语言批量加购 / 查询近期商品 / 删除 / 改数量 / 查看 / 清空购物车
+    │   yield StatusEvent + CartEvent(成功时)
+    │   工具结果返回 LLM，继续决策或生成最终回复
     │
     └─ 有 tool_calls → 调用 retrieve_products
         │
@@ -56,7 +57,7 @@ Phase 1: LLM 决策（非流式）
     执行检索（每个 request 独立调用 retriever.retrieve）
         │
         ▼
-    Phase 2: LLM 生成（流式）
+    工具结果返回 LLM，最终生成回复
         解析 <R> 推荐标记和可选 <C> 对比标记
         yield ProductEvent + CompareEvent(可选) + TokenEvent
 ```
@@ -86,11 +87,12 @@ Phase 1: LLM 决策（非流式）
 - 可通过 `python chroma_sync.py` 手动执行一次同步，Demo 前可用于强制追平索引
 
 ### server/agent.py
-- Agent 编排核心：单跳工具调用 + 流式生成
-- Phase 1：LLM 接收对话历史 + 工具定义，决定调用工具还是直接回复
-- Phase 2（仅工具调用时）：将工具返回的多组商品资料注入上下文，LLM 流式生成推荐回复
+- Agent 编排核心：最多 3 步 ReAct 工具循环 + 最终回复解析
+- 存放 `SYSTEM_PROMPT`、`EVAL_INTENT_ADDENDUM` 等 LLM 提示词
+- LLM 接收对话历史 + 工具定义，决定调用工具还是直接回复；工具结果会回填给 LLM 继续决策
+- 本轮使用 `retrieve_products` 后才追加 `<R>` 推荐标记要求，并基于最终回复发送商品卡片
 - 直接回复场景：反问澄清、追问已展示商品、寒暄等
-- 购物车工具场景：执行确定性状态操作，产出 CartEvent 并返回简短操作结果
+- 购物车工具场景：执行确定性状态操作，成功时产出 CartEvent；最终自然语言回复由 LLM 基于工具结果生成
 - 解析 `<R>` 推荐标记和可选 `<C>` 结构化对比标记，产出 TokenEvent / ProductEvent / CompareEvent / CartEvent / StatusEvent
 
 ### server/tools/\_\_init\_\_.py
@@ -98,16 +100,17 @@ Phase 1: LLM 决策（非流式）
 - 提供统一的 `execute(name, arguments)` 分发接口
 
 ### server/tools/cart.py
-- 定义 `add_to_cart`、`remove_from_cart`、`update_cart_item`、`view_cart`、`clear_cart` 工具 schema
-- 将 `product_id`、`recent_position`、`cart_position`、`title_keyword` 等工具参数解析为后端可信商品或购物车条目
-- 加购先用最近展示商品池确认商品身份，再由 `cart_store` 查询 MySQL 最新状态完成价格、库存和上下架校验
+- 定义 `add_to_cart`、`list_recent_products`、`remove_from_cart`、`update_cart_item`、`view_cart`、`clear_cart` 工具 schema
+- `add_to_cart` 只接受明确的 `product_ids[]` 和 `quantity`，支持批量加购；批量需求应一次工具调用完成
+- `list_recent_products` 无参数，按推荐时间从近到远返回当前会话近期展示商品详情，仅用于 LLM 因上下文过长记忆模糊时补充记忆
+- 加购先用近期商品池确认 `product_id` 属于当前会话，再由 `cart_store` 查询 MySQL 最新状态完成价格、库存和上下架校验
 - 删除只操作当前购物车条目；改数量会重新校验 MySQL 最新库存和上下架状态
-- 指代缺失、位置不存在或关键词匹配多项时返回失败消息，不猜测商品
+- 指代缺失或无法唯一确定时返回失败消息，不猜测商品
 
 ### server/tools/retrieve_products.py
 - 定义 `retrieve_products` 工具的 OpenAI Function Calling schema
 - `execute()`：接收 `requests[]`，将每个 request 转为 `retriever.retrieve()` 的 intent dict 并独立执行检索
-- `parse_intent()`：通过强制工具调用提取检索意图（供离线评估使用）
+- `parse_intent()`：复用 `agent.SYSTEM_PROMPT` + `EVAL_INTENT_ADDENDUM`，通过强制工具调用提取检索意图（供离线评估使用）
 
 ### server/conversation.py
 - 内存会话存储：`conversation_id -> list[message]`
@@ -116,12 +119,12 @@ Phase 1: LLM 决策（非流式）
 
 ### server/cart_store.py
 - 内存购物车存储：`conversation_id -> product_id -> cart item`
-- 最近展示商品池：记录每个会话最近 20 个已通过 `product` SSE 发送的商品卡片快照
-- 最近展示商品池只用于确认商品身份，不作为加购和展示的价格/库存依据
+- 近期展示商品池：记录每个会话最近 20 个已通过 `product` SSE 发送的轻量记录，只包含 `product_id`、`displayed_price` 和 `displayed_at`
+- 近期展示商品池用于确认商品身份和价格变化提示，不作为商品标题、库存、当前价格等主数据来源
 - 加购和改数量前按 `product_id` 查询 MySQL 最新商品；商品不存在、下架、无库存或库存不足时失败
 - 商品价格变化时使用 MySQL 最新价格，并在购物车快照 `messages` 中返回提示
 - 购物车快照每次重新读取 MySQL 最新价格、库存和上下架状态；下架或不存在商品会从内存购物车移除并返回提示
-- 提供 `record_recent_product`、`get_recent_product`、`get_recent_product_by_position`、`list_recent_products`、`add_item`、`remove_item`、`update_item`、`clear_cart`、`snapshot`
+- 提供 `record_recent_product`、`get_recent_product_entry`、`list_recent_product_entries`、`list_recent_products`、`add_item`、`remove_item`、`update_item`、`clear_cart`、`snapshot`
 
 ### server/retriever.py
 - 模块级初始化 ChromaDB PersistentClient，复用连接
@@ -158,7 +161,7 @@ Phase 1: LLM 决策（非流式）
 - 挂载 `/assets` 静态资源路径，用于返回商品图片
 - 提供 `GET /health`
 - 提供 `POST /api/chat` SSE 端点：委托 `agent.run_turn()` 执行，将事件流转为 SSE
-- 在发送 `product` SSE 事件时写入最近展示商品池
+- 在发送 `product` SSE 事件时写入近期展示商品池
 - 在收到 `CartEvent` 时发送 `cart` SSE 事件，同步最新购物车快照
 - 提供购物车 HTTP 接口：`GET /api/cart`、`POST /api/cart/items`、`PATCH /api/cart/items/{product_id}`、`DELETE /api/cart/items/{product_id}`、`DELETE /api/cart`
 
@@ -220,12 +223,11 @@ ChatApiService
     │ POST {"message": "...", "conversation_id": "..."} 到 /api/chat
     ▼
 FastAPI
-    │ 1. Agent Phase 1：LLM 接收历史+工具定义，决策是否调用工具
-    │    - 无需检索：直接生成回复（反问/追问/寒暄）
-    │    - 购物车操作：调用 cart 工具，更新/查看当前会话购物车
-    │    - 需要检索：调用 retrieve_products 工具，普通推荐使用 1 个 request，组合推荐使用多个 request
-    │ 2. Agent Phase 2（仅工具调用时）：
-    │    - 多组检索结果注入上下文，LLM 流式生成推荐回复
+    │ Agent ReAct loop：LLM 接收历史+工具定义，最多执行 3 步工具调用
+    │    - 无需工具：直接生成回复（反问/追问/寒暄）
+    │    - 购物车操作：调用 cart 工具，更新/查看购物车或读取近期商品补充记忆
+    │    - 需要检索：调用 retrieve_products，普通推荐使用 1 个 request，组合推荐使用多个 request
+    │ 工具结果回填给 LLM 后生成最终回复
     │    - 解析 <R> 标记，只发送 LLM 推荐的商品卡片
     │    - 解析可选 <C> 标记，发送结构化对比事件
     ▼
@@ -237,7 +239,7 @@ SSE event: cart (可选)
     ▼
 SSE event: product
     │ 仅包含 LLM 明确推荐的商品；组合推荐也按扁平商品列表发送，不按子需求分组
-    │ FastAPI 同步记录到当前 conversation_id 的最近展示商品池
+    │ FastAPI 同步记录到当前 conversation_id 的近期展示商品池
     ▼
 SSE event: compare (可选)
     │ 仅对比决策场景发送，携带结构化对比表数据
@@ -261,7 +263,7 @@ ChatScreen 渲染消息气泡、商品卡片、图片和详情弹窗
 FastAPI /api/cart*
     │ 使用 conversation_id 定位会话
     │ POST /api/cart/items 只接收 product_id + quantity
-    │ 先用最近展示商品池确认 product_id 属于当前会话
+    │ 先用近期展示商品池确认 product_id 属于当前会话
     ▼
 CartStore
     │ 查询 MySQL 最新商品状态
@@ -277,15 +279,16 @@ CartSnapshot
 ## 自然语言购物车数据流
 
 ```text
-用户输入“第二个加两件”“删掉购物车里的耳机”
+用户输入“把这些商品加入购物车”“删掉购物车里的耳机”
     │
     ▼
-Agent Phase 1
-    │ 选择 add_to_cart / remove_from_cart / update_cart_item / view_cart / clear_cart
+Agent ReAct loop
+    │ 选择 add_to_cart / list_recent_products / remove_from_cart / update_cart_item / view_cart / clear_cart
+    │ 批量加购时一次传入 product_ids[]；对话过长记忆模糊时才调用 list_recent_products
     ▼
 server/tools/cart.py
-    │ 使用 conversation_id 读取最近展示商品池或购物车快照
-    │ 解析 recent_position / cart_position / title_keyword
+    │ 使用 conversation_id 校验近期展示商品池或读取购物车快照
+    │ add_to_cart 只接收 product_ids[]；删除/改数量仍可按购物车位置或关键词解析
     ▼
 CartStore
     │ 执行确定性 add / remove / update / snapshot / clear
@@ -317,7 +320,7 @@ TokenEvent
 |------|------|
 | 后端框架 | Python 3.10+ / FastAPI |
 | MySQL（开发） | Docker Compose |
-| Agent 编排 | 单跳工具调用（OpenAI Function Calling 协议） |
+| Agent 编排 | ReAct 工具循环（OpenAI Function Calling 协议，最多 3 步） |
 | 商品权威源 | MySQL + SQLAlchemy Core + PyMySQL |
 | ChromaDB 同步 | FastAPI 后台任务 + MySQL `sync_state` 水位 |
 | 向量数据库 | ChromaDB（嵌入式） |

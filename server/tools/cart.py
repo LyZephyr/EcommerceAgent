@@ -10,23 +10,18 @@ TOOL_DEFINITIONS = [
         "function": {
             "name": "add_to_cart",
             "description": (
-                "把最近展示过的商品加入购物车。"
-                "用户说“第一款/第二个”时填写 recent_position；"
-                "用户提到商品名、品牌或品类时填写 title_keyword；"
-                "只有用户明确给出商品 ID 时才填写 product_id。"
+                "把当前会话近期展示过的一个或多个商品加入购物车。"
+                "必须填写明确的 product_ids；如果需要添加多件商品，"
+                "应一次性填写 product_ids 批量调用，不要为每个商品重复调用工具。"
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "product_id": {"type": "string", "description": "商品 ID"},
-                    "recent_position": {
-                        "type": "integer",
-                        "minimum": 1,
-                        "description": "最近展示商品列表中的 1-based 位置",
-                    },
-                    "title_keyword": {
-                        "type": "string",
-                        "description": "商品标题、品牌、类目中的关键词",
+                    "product_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 1,
+                        "description": "要加入购物车的商品 ID 列表",
                     },
                     "quantity": {
                         "type": "integer",
@@ -35,7 +30,20 @@ TOOL_DEFINITIONS = [
                         "description": "加购数量",
                     },
                 },
+                "required": ["product_ids"],
             },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_recent_products",
+            "description": (
+                "返回当前会话近期展示过的最多 20 个商品详情，按推荐时间从近到远排列。"
+                "仅当对话过长导致你无法确定用户指代的历史商品时调用；"
+                "如果用户表达本身含糊，应先追问用户，而不是调用本工具猜测。"
+            ),
+            "parameters": {"type": "object", "properties": {}},
         },
     },
     {
@@ -116,6 +124,8 @@ TOOL_DEFINITIONS = [
 def execute(name: str, arguments: dict, conversation_id: str) -> dict:
     if name == "add_to_cart":
         return _add_to_cart(arguments, conversation_id)
+    if name == "list_recent_products":
+        return _list_recent_products(conversation_id)
     if name == "remove_from_cart":
         return _remove_from_cart(arguments, conversation_id)
     if name == "update_cart_item":
@@ -132,23 +142,49 @@ def _add_to_cart(arguments: dict, conversation_id: str) -> dict:
     if quantity < 1:
         return _error("加购数量必须至少为 1。")
 
-    product, error = _resolve_recent_product(arguments, conversation_id)
-    if error:
-        return _error(error)
+    product_ids = _unique_product_ids(arguments.get("product_ids") or [])
+    if not product_ids:
+        return _error("请提供要加入购物车的商品 ID。")
 
-    try:
-        cart = cart_store.add_item(conversation_id, product, quantity)
-    except cart_store.CartOperationError as exc:
-        return _error(str(exc))
+    added_titles: list[str] = []
+    failures: list[str] = []
+    cart = cart_store.snapshot(conversation_id)
+    cart_messages: list[str] = []
 
-    item = _cart_item_by_id(cart, product["product_id"]) or product
-    return _success(
-        cart,
-        _with_cart_messages(
-            f"已将「{item['title']}」加入购物车，数量 {quantity} 件。{_summary(cart)}",
-            cart,
-        ),
-    )
+    for product_id in product_ids:
+        try:
+            cart = cart_store.add_item(conversation_id, product_id, quantity)
+        except cart_store.CartOperationError as exc:
+            failures.append(f"{product_id}：{exc}")
+            continue
+
+        latest_item = _cart_item_by_id(cart, product_id)
+        added_titles.append(latest_item["title"] if latest_item else product_id)
+        cart_messages.extend(cart.get("messages") or [])
+
+    cart = cart_store.snapshot(conversation_id)
+    cart["messages"].extend(cart_messages)
+    if not added_titles:
+        if failures:
+            return _error("没有商品加入购物车：" + "；".join(failures))
+        return _error("没有商品加入购物车。")
+
+    added_text = "、".join(f"「{title}」" for title in added_titles)
+    message = f"已将 {added_text} 加入购物车，每款数量 {quantity} 件。{_summary(cart)}"
+    if failures:
+        message += "\n未加入：" + "；".join(failures)
+    return _success(cart, _with_cart_messages(message, cart))
+
+
+def _list_recent_products(conversation_id: str) -> dict:
+    products = cart_store.list_recent_products(conversation_id)
+    if not products:
+        return {"success": True, "products": [], "message": "当前会话没有近期展示商品。"}
+    return {
+        "success": True,
+        "products": products,
+        "message": f"已返回最近 {len(products)} 个展示商品，顺序为从近到远。",
+    }
 
 
 def _remove_from_cart(arguments: dict, conversation_id: str) -> dict:
@@ -202,36 +238,6 @@ def _clear_cart(conversation_id: str) -> dict:
     return _success(cart, "已清空购物车。")
 
 
-def _resolve_recent_product(arguments: dict, conversation_id: str) -> tuple[dict, str | None]:
-    product_id = arguments.get("product_id")
-    if product_id:
-        product = cart_store.get_recent_product(conversation_id, str(product_id))
-        if product:
-            return product, None
-        return {}, "这个商品不在当前会话最近展示的商品里，不能加入购物车。"
-
-    recent_position = arguments.get("recent_position")
-    if recent_position is not None:
-        product = cart_store.get_recent_product_by_position(
-            conversation_id,
-            int(recent_position),
-        )
-        if product:
-            return product, None
-        return {}, "最近展示的商品里没有这个位置，请重新说明要加购哪一款。"
-
-    recent_products = cart_store.list_recent_products(conversation_id)
-    keyword = arguments.get("title_keyword")
-    if keyword:
-        return _match_one(recent_products, keyword, "最近展示商品")
-
-    if len(recent_products) == 1:
-        return recent_products[0], None
-    if not recent_products:
-        return {}, "当前还没有可加入购物车的已展示商品。"
-    return {}, "你想加购哪一款？请说明第几个商品或商品名。"
-
-
 def _resolve_cart_item(arguments: dict, conversation_id: str) -> tuple[dict, str | None]:
     cart = cart_store.snapshot(conversation_id)
     items = cart["items"]
@@ -281,6 +287,18 @@ def _match_one(items: list[dict], keyword: str, source_name: str) -> tuple[dict,
 
 def _normalize(value: str) -> str:
     return "".join(value.lower().split())
+
+
+def _unique_product_ids(product_ids: list) -> list[str]:
+    unique_ids: list[str] = []
+    seen_ids = set()
+    for product_id in product_ids:
+        normalized_id = str(product_id).strip()
+        if not normalized_id or normalized_id in seen_ids:
+            continue
+        seen_ids.add(normalized_id)
+        unique_ids.append(normalized_id)
+    return unique_ids
 
 
 def _success(cart: dict, message: str) -> dict:

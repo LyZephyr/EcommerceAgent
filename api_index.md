@@ -80,7 +80,7 @@
 
 ### POST /api/cart/items
 
-把最近展示过的商品加入购物车。接口只接受 `product_id` 和 `quantity`，最近展示商品池只用于确认商品身份；商品标题、价格、库存和上下架状态会在加购前从 MySQL 实时读取。
+把当前会话近期展示过的商品加入购物车。接口只接受 `product_id` 和 `quantity`，近期展示商品池只用于确认商品身份并保留展示价用于价格变化提示；商品标题、当前价格、库存和上下架状态会在加购前从 MySQL 实时读取。
 
 **请求体**：
 
@@ -98,7 +98,7 @@
 
 | HTTP 状态码 | 场景 |
 |-------------|------|
-| `404` | 商品不在当前会话最近展示商品池中 |
+| `404` | 商品不在当前会话近期展示商品池中 |
 | `409` | 商品已下架、无库存或库存不足 |
 | `422` | `quantity < 1` 或请求体格式错误 |
 
@@ -179,14 +179,16 @@
 
 ### agent.py
 
-| 类/函数 | 签名 | 说明 |
+| 常量/类/函数 | 签名 | 说明 |
 |---------|------|------|
+| `SYSTEM_PROMPT` | `str` | Agent 与离线评估共用的 system prompt |
+| `EVAL_INTENT_ADDENDUM` | `str` | 离线评估追加说明：单 query、强制 `retrieve_products`、单 request |
 | `TokenEvent` | `@dataclass: content: str` | 文本片段事件 |
 | `ProductEvent` | `@dataclass: product_id: str, product_data: dict` | 商品推荐事件 |
 | `StatusEvent` | `@dataclass: status: str` | 状态提示事件 |
 | `CompareEvent` | `@dataclass: payload: dict` | 结构化对比事件 |
 | `CartEvent` | `@dataclass: payload: dict` | 购物车快照同步事件 |
-| `run_turn` | `async (conversation_id: str, user_message: str) -> AsyncIterator[TokenEvent \| ProductEvent \| StatusEvent \| CompareEvent \| CartEvent]` | 执行一轮对话：Phase 1 决策 + 检索生成或购物车工具操作 |
+| `run_turn` | `async (conversation_id: str, user_message: str) -> AsyncIterator[TokenEvent \| ProductEvent \| StatusEvent \| CompareEvent \| CartEvent]` | 执行一轮对话：最多 3 步 ReAct 工具循环 + 最终回复解析 |
 
 ### tools/\_\_init\_\_.py
 
@@ -205,7 +207,8 @@
 
 | 工具名 | 关键参数 | 说明 |
 |--------|----------|------|
-| `add_to_cart` | `product_id?`, `recent_position?`, `title_keyword?`, `quantity?` | 从最近展示商品池解析商品身份，加购前读取 MySQL 最新价格、库存和上下架状态 |
+| `add_to_cart` | `product_ids`, `quantity?` | 批量把明确商品 ID 加入购物车；每个 ID 必须属于当前会话近期展示商品池，加购前读取 MySQL 最新价格、库存和上下架状态 |
+| `list_recent_products` | 无 | 返回当前会话最近 20 个展示商品详情，按推荐时间从近到远排序；仅用于 LLM 因上下文过长记忆模糊时补充记忆 |
 | `remove_from_cart` | `product_id?`, `cart_position?`, `title_keyword?` | 从购物车删除商品 |
 | `update_cart_item` | `product_id?`, `cart_position?`, `title_keyword?`, `quantity` | 修改购物车商品数量 |
 | `view_cart` | 无 | 查看当前购物车 |
@@ -217,7 +220,7 @@
 |-----------|------|------|
 | `TOOL_DEFINITION` | `dict` | OpenAI Function Calling 格式的工具定义，参数为 `requests[]` |
 | `execute` | `(arguments: dict) -> list[dict]` | 遍历 `requests[]`，每个 request 独立调用 `retriever.retrieve()`，返回多组 Top-K 商品 |
-| `parse_intent` | `async (query: str) -> dict` | 通过强制工具调用提取单 request 检索意图（供离线评估使用） |
+| `parse_intent` | `async (query: str) -> dict` | 使用 `SYSTEM_PROMPT` + `EVAL_INTENT_ADDENDUM`（`temperature=0.3`），强制工具调用提取单 request 检索意图（供离线评估使用） |
 
 `retrieve_products` 工具参数示例：
 
@@ -258,12 +261,12 @@
 
 | 函数 | 签名 | 说明 |
 |------|------|------|
-| `record_recent_product` | `(conversation_id: str, product: dict) -> None` | 记录当前会话已通过商品卡片展示的后端商品快照 |
-| `get_recent_product` | `(conversation_id: str, product_id: str) -> dict \| None` | 按商品 ID 从最近展示商品池取可信商品快照 |
-| `get_recent_product_by_position` | `(conversation_id: str, position: int) -> dict \| None` | 按 1-based 展示顺序取最近展示商品，供后续指代解析使用 |
-| `list_recent_products` | `(conversation_id: str) -> list[dict]` | 返回当前会话最近展示商品快照列表 |
+| `record_recent_product` | `(conversation_id: str, product: dict) -> None` | 记录当前会话已通过商品卡片展示的轻量近期记录：`product_id`、`displayed_price`、`displayed_at` |
+| `get_recent_product_entry` | `(conversation_id: str, product_id: str) -> dict \| None` | 按商品 ID 从近期展示商品池取轻量记录，用于确认商品属于当前会话 |
+| `list_recent_product_entries` | `(conversation_id: str) -> list[dict]` | 返回轻量近期记录，按展示时间从近到远排序 |
+| `list_recent_products` | `(conversation_id: str) -> list[dict]` | 读取近期记录中的 `product_id` 并从 MySQL 补全商品详情，供工具返回给 LLM |
 | `CartOperationError` | `ValueError` 子类，含 `status_code` | 加购或改数量校验失败，供 HTTP 和自然语言工具统一处理 |
-| `add_item` | `(conversation_id: str, product: dict, quantity: int = 1) -> dict` | 用最近展示商品确认身份后读取 MySQL 最新商品，加购成功返回购物车快照；商品下架、无库存或库存不足时抛出 `CartOperationError` |
+| `add_item` | `(conversation_id: str, product_id: str, quantity: int = 1) -> dict` | 先确认 `product_id` 属于当前会话近期展示商品池，再读取 MySQL 最新商品并加购；商品下架、无库存或库存不足时抛出 `CartOperationError` |
 | `remove_item` | `(conversation_id: str, product_id: str) -> dict` | 删除购物车商品；不存在时抛出 `KeyError` |
 | `update_item` | `(conversation_id: str, product_id: str, quantity: int) -> dict` | 设置购物车商品数量；不存在时抛出 `KeyError`；商品下架、无库存或库存不足时抛出 `CartOperationError` |
 | `clear_cart` | `(conversation_id: str) -> dict` | 清空当前会话购物车并返回快照 |
