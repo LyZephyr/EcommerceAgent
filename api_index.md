@@ -398,3 +398,28 @@ server/.venv/bin/python eval/run_saved_intent_vector_eval.py --vector-only
 | `ChatEvent.Status` | `message: String` | Parsed backend `status` SSE event. |
 | `ChatEvent.Compare` | `table: CompareTable` | Parsed backend `compare` SSE event. |
 | `CompareTableCard` | `(table: CompareTable)` | Compose renderer for comparison tables inside the message stream. |
+
+## Android client cart UI extension
+
+| Type / member | Signature | Description |
+|---------------|-----------|-------------|
+| `CartItem` | `productId`, `title`, `category`, `price`, `brand`, `subCategory`, `imageUrl`, `quantity`, `subtotal` | Client model for one cart row. |
+| `Cart` | `conversationId`, `items`, `totalQuantity`, `totalPrice` | Client model for backend cart snapshots. |
+| `ChatEvent.CartUpdated` | `cart: Cart` | Parsed backend `cart` SSE event. |
+| `ChatApiService.getCart` | `suspend (conversationId: String) -> Cart` | Calls `GET /api/cart`. |
+| `ChatApiService.addCartItem` | `suspend (conversationId: String, productId: String, quantity: Int = 1) -> Cart` | Calls `POST /api/cart/items`. |
+| `ChatApiService.updateCartItem` | `suspend (conversationId: String, productId: String, quantity: Int) -> Cart` | Calls `PATCH /api/cart/items/{product_id}`. |
+| `ChatApiService.removeCartItem` | `suspend (conversationId: String, productId: String) -> Cart` | Calls `DELETE /api/cart/items/{product_id}`. |
+| `ChatApiService.clearCart` | `suspend (conversationId: String) -> Cart` | Calls `DELETE /api/cart`. |
+| `ChatUiState.cart` | `Cart` | Current cart snapshot for the active conversation. |
+| `ChatUiState.isCartLoading` | `Boolean` | True while a direct cart HTTP mutation is in flight. |
+| `ChatUiState.cartError` | `String?` | Last cart mutation error shown in the cart summary/sheet. |
+| `CartSummaryBar` | `(cart, cartError, isCartLoading, onClick)` | Summary strip above the chat input. |
+| `CartSheet` | `(cart, isCartLoading, cartError, onDismiss, onIncrement, onDecrement, onRemove, onClear)` | Bottom sheet for cart detail and management. |
+
+## End-to-end validation
+
+| Script | Command | Coverage |
+|--------|---------|----------|
+| `eval/run_cart_e2e.py` | `python eval/run_cart_e2e.py --base-url http://127.0.0.1:8000` | Validates HTTP cart CRUD, SSE recommendation product capture, conversation isolation, and natural-language cart add/view/update/remove. |
+| `eval/run_cart_e2e.py --http-only` | `python eval/run_cart_e2e.py --base-url http://127.0.0.1:8000 --http-only` | Skips natural-language cart assertions when LLM access is unavailable. |

@@ -105,3 +105,26 @@ HF_HUB_OFFLINE=1 server/.venv/bin/python eval/run_retrieval_eval.py
 - [系统架构](architecture.md)
 - [API 索引](api_index.md)
 - [需求文档](Task.md)
+
+## Cart Demo Flow
+
+1. Start the FastAPI backend on port `8000`.
+2. Build and run the Android debug app.
+3. Ask for product recommendations, then tap the cart button on a product card.
+4. Use the cart icon or bottom summary strip to open the cart sheet.
+5. Increase, decrease, remove, or clear cart items from the sheet.
+6. Try natural-language operations such as `把第一款加入购物车`, `购物车里有什么`, `把购物车第一个商品数量改成2`, and `删除购物车第一个商品`.
+
+## Cart End-to-End Validation
+
+With the backend running:
+
+```powershell
+python eval/run_cart_e2e.py --base-url http://127.0.0.1:8000
+```
+
+If LLM access is blocked but the backend is running, validate the deterministic HTTP cart path:
+
+```powershell
+python eval/run_cart_e2e.py --base-url http://127.0.0.1:8000 --http-only
+```

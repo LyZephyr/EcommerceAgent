@@ -5,6 +5,10 @@
 __pycache__/
 *.pyc
 *.pyo
+server/.venv/
+server/.venv-cart-e2e/
+client-android/.gradle-user/
+.tmp/
 .venv/
 venv/
 
@@ -27,3 +31,4 @@ Thumbs.db
 .agents
 .codex
 eval/
+

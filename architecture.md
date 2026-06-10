@@ -249,3 +249,23 @@ TokenEvent
 ## Android compare display extension
 
 The Android client parses backend `compare` SSE events into `CompareTable` models, stores them on the active assistant `Message`, and renders comparison tables inline before the existing flat product-card list. Combination recommendations continue to use the existing ungrouped horizontal product cards.
+
+## Android cart UI extension
+
+The Android client consumes backend `cart` SSE events and direct `/api/cart*`
+HTTP responses into `Cart` / `CartItem` models. `ChatViewModel` stores the
+current cart snapshot in `ChatUiState.cart`, tracks direct cart mutations with
+`isCartLoading`, and exposes add, increment, decrement, remove, and clear
+operations for Compose.
+
+`ChatScreen` renders a global cart icon in the app bar, a cart summary strip
+above the input bar when the cart has items or an error, and a
+`ModalBottomSheet` for cart management. Product cards and the product detail
+dialog call `POST /api/cart/items` through `ChatViewModel.addToCart`; the
+backend still resolves trusted title, price, and image data from the current
+conversation's recently displayed product pool.
+
+End-to-end cart validation lives in `eval/run_cart_e2e.py`. It exercises empty
+cart reads, invalid add rejection, product recommendation, HTTP add, quantity
+update, deletion, clearing, conversation isolation, and natural-language cart
+operations through `/api/chat` SSE when the LLM route is available.

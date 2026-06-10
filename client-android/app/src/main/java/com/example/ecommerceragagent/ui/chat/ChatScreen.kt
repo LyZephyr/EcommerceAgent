@@ -32,15 +32,24 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AddShoppingCart
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -65,6 +74,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.example.ecommerceragagent.data.model.Cart
+import com.example.ecommerceragagent.data.model.CartItem
 import com.example.ecommerceragagent.data.model.CompareTable
 import com.example.ecommerceragagent.data.model.Message
 import com.example.ecommerceragagent.data.model.MessageRole
@@ -81,8 +92,16 @@ fun ChatRoute(
     ChatScreen(
         messages = uiState.messages,
         isLoading = uiState.isLoading,
+        cart = uiState.cart,
+        isCartLoading = uiState.isCartLoading,
+        cartError = uiState.cartError,
         onSendMessage = viewModel::sendMessage,
-        onCancelResponse = viewModel::cancelResponse
+        onCancelResponse = viewModel::cancelResponse,
+        onAddToCart = viewModel::addToCart,
+        onIncrementCartItem = viewModel::incrementCartItem,
+        onDecrementCartItem = viewModel::decrementCartItem,
+        onRemoveCartItem = viewModel::removeCartItem,
+        onClearCart = viewModel::clearCart
     )
 }
 
@@ -91,12 +110,21 @@ fun ChatRoute(
 fun ChatScreen(
     messages: List<Message>,
     isLoading: Boolean,
+    cart: Cart,
+    isCartLoading: Boolean,
+    cartError: String?,
     onSendMessage: (String) -> Unit,
-    onCancelResponse: () -> Unit
+    onCancelResponse: () -> Unit,
+    onAddToCart: (Product) -> Unit,
+    onIncrementCartItem: (String) -> Unit,
+    onDecrementCartItem: (String) -> Unit,
+    onRemoveCartItem: (String) -> Unit,
+    onClearCart: () -> Unit
 ) {
     val listState = rememberLazyListState()
     var input by rememberSaveable { mutableStateOf("") }
     var selectedProduct by remember { mutableStateOf<Product?>(null) }
+    var showCart by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(messages.size, messages.lastOrNull()?.content) {
         if (messages.isNotEmpty()) {
@@ -107,7 +135,24 @@ fun ChatScreen(
     selectedProduct?.let { product ->
         ProductDialog(
             product = product,
+            onAddToCart = {
+                onAddToCart(product)
+                selectedProduct = null
+            },
             onDismiss = { selectedProduct = null }
+        )
+    }
+
+    if (showCart) {
+        CartSheet(
+            cart = cart,
+            isCartLoading = isCartLoading,
+            cartError = cartError,
+            onDismiss = { showCart = false },
+            onIncrement = onIncrementCartItem,
+            onDecrement = onDecrementCartItem,
+            onRemove = onRemoveCartItem,
+            onClear = onClearCart
         )
     }
 
@@ -130,20 +175,46 @@ fun ChatScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+                },
+                actions = {
+                    IconButton(onClick = { showCart = true }) {
+                        BadgedBox(
+                            badge = {
+                                if (cart.totalQuantity > 0) {
+                                    Badge { Text(cart.totalQuantity.toString()) }
+                                }
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ShoppingCart,
+                                contentDescription = "购物车"
+                            )
+                        }
+                    }
                 }
             )
         },
         bottomBar = {
-            ChatInputBar(
-                input = input,
-                isLoading = isLoading,
-                onInputChange = { input = it },
-                onSend = {
-                    onSendMessage(input)
-                    input = ""
-                },
-                onCancel = onCancelResponse
-            )
+            Column {
+                if (cart.totalQuantity > 0 || cartError != null) {
+                    CartSummaryBar(
+                        cart = cart,
+                        cartError = cartError,
+                        isCartLoading = isCartLoading,
+                        onClick = { showCart = true }
+                    )
+                }
+                ChatInputBar(
+                    input = input,
+                    isLoading = isLoading,
+                    onInputChange = { input = it },
+                    onSend = {
+                        onSendMessage(input)
+                        input = ""
+                    },
+                    onCancel = onCancelResponse
+                )
+            }
         }
     ) { padding ->
         LazyColumn(
@@ -158,7 +229,8 @@ fun ChatScreen(
             items(messages, key = { it.id }) { message ->
                 MessageItem(
                     message = message,
-                    onProductClick = { selectedProduct = it }
+                    onProductClick = { selectedProduct = it },
+                    onAddToCart = onAddToCart
                 )
             }
         }
@@ -168,7 +240,8 @@ fun ChatScreen(
 @Composable
 private fun MessageItem(
     message: Message,
-    onProductClick: (Product) -> Unit
+    onProductClick: (Product) -> Unit,
+    onAddToCart: (Product) -> Unit
 ) {
     val isUser = message.role == MessageRole.User
     val alignment = if (isUser) Alignment.End else Alignment.Start
@@ -202,7 +275,8 @@ private fun MessageItem(
                 items(message.products, key = { it.productId }) { product ->
                     ProductCard(
                         product = product,
-                        onClick = { onProductClick(product) }
+                        onClick = { onProductClick(product) },
+                        onAddToCart = { onAddToCart(product) }
                     )
                 }
             }
@@ -359,11 +433,10 @@ private fun CompareCell(
 @Composable
 private fun ProductCard(
     product: Product,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onAddToCart: () -> Unit
 ) {
-    val priceText = remember(product.price) {
-        NumberFormat.getCurrencyInstance(Locale.CHINA).format(product.price)
-    }
+    val priceText = remember(product.price) { formatPrice(product.price) }
 
     Card(
         modifier = Modifier
@@ -410,16 +483,32 @@ private fun ProductCard(
                 )
             }
             Spacer(modifier = Modifier.height(6.dp))
-            AssistChip(
-                onClick = onClick,
-                label = {
-                    Text(
-                        text = product.subCategory ?: product.category,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                AssistChip(
+                    onClick = onClick,
+                    label = {
+                        Text(
+                            text = product.subCategory ?: product.category,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                )
+                IconButton(
+                    modifier = Modifier.size(40.dp),
+                    onClick = onAddToCart
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AddShoppingCart,
+                        contentDescription = "加入购物车",
+                        tint = MaterialTheme.colorScheme.primary
                     )
                 }
-            )
+            }
         }
     }
 }
@@ -508,17 +597,26 @@ private fun ChatInputBar(
 @Composable
 private fun ProductDialog(
     product: Product,
+    onAddToCart: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    val priceText = remember(product.price) {
-        NumberFormat.getCurrencyInstance(Locale.CHINA).format(product.price)
-    }
+    val priceText = remember(product.price) { formatPrice(product.price) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        confirmButton = {
+        dismissButton = {
             TextButton(onClick = onDismiss) {
                 Text("关闭")
+            }
+        },
+        confirmButton = {
+            Button(onClick = onAddToCart) {
+                Icon(
+                    imageVector = Icons.Default.AddShoppingCart,
+                    contentDescription = null
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("加入购物车")
             }
         },
         title = { Text(product.title) },
@@ -538,6 +636,222 @@ private fun ProductDialog(
             }
         }
     )
+}
+
+@Composable
+private fun CartSummaryBar(
+    cart: Cart,
+    cartError: String?,
+    isCartLoading: Boolean,
+    onClick: () -> Unit
+) {
+    val totalText = remember(cart.totalPrice) { formatPrice(cart.totalPrice) }
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        tonalElevation = 2.dp,
+        color = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                modifier = Modifier.weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ShoppingCart,
+                    contentDescription = null
+                )
+                Text(
+                    text = cartError ?: "购物车 ${cart.totalQuantity} 件",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Text(
+                text = if (isCartLoading) "更新中" else totalText,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CartSheet(
+    cart: Cart,
+    isCartLoading: Boolean,
+    cartError: String?,
+    onDismiss: () -> Unit,
+    onIncrement: (String) -> Unit,
+    onDecrement: (String) -> Unit,
+    onRemove: (String) -> Unit,
+    onClear: () -> Unit
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "购物车",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = "${cart.totalQuantity} 件商品 · ${formatPrice(cart.totalPrice)}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                TextButton(
+                    enabled = cart.items.isNotEmpty() && !isCartLoading,
+                    onClick = onClear
+                ) {
+                    Text("清空")
+                }
+            }
+
+            cartError?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+
+            if (cart.items.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(160.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "购物车还是空的",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    cart.items.forEach { item ->
+                        CartItemRow(
+                            item = item,
+                            enabled = !isCartLoading,
+                            onIncrement = { onIncrement(item.productId) },
+                            onDecrement = { onDecrement(item.productId) },
+                            onRemove = { onRemove(item.productId) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CartItemRow(
+    item: CartItem,
+    enabled: Boolean,
+    onIncrement: () -> Unit,
+    onDecrement: () -> Unit,
+    onRemove: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ProductImage(
+                imageUrl = item.imageUrl,
+                modifier = Modifier
+                    .size(72.dp)
+                    .clip(RoundedCornerShape(6.dp))
+            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = item.title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = "${formatPrice(item.price)} · 小计 ${formatPrice(item.subtotal)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        modifier = Modifier.size(32.dp),
+                        enabled = enabled,
+                        onClick = onDecrement
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Remove,
+                            contentDescription = "减少"
+                        )
+                    }
+                    Text(
+                        text = item.quantity.toString(),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    IconButton(
+                        modifier = Modifier.size(32.dp),
+                        enabled = enabled,
+                        onClick = onIncrement
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = "增加"
+                        )
+                    }
+                }
+            }
+            IconButton(
+                enabled = enabled,
+                onClick = onRemove
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Delete,
+                    contentDescription = "删除",
+                    tint = MaterialTheme.colorScheme.error
+                )
+            }
+        }
+    }
 }
 
 @Composable
@@ -561,4 +875,8 @@ private fun ProductInfoRow(
             color = MaterialTheme.colorScheme.onSurface
         )
     }
+}
+
+private fun formatPrice(price: Double): String {
+    return NumberFormat.getCurrencyInstance(Locale.CHINA).format(price)
 }

@@ -1,13 +1,17 @@
 package com.example.ecommerceragagent.data.api
 
 import com.example.ecommerceragagent.BuildConfig
+import com.example.ecommerceragagent.data.model.Cart
+import com.example.ecommerceragagent.data.model.CartItem
 import com.example.ecommerceragagent.data.model.CompareProduct
 import com.example.ecommerceragagent.data.model.CompareRow
 import com.example.ecommerceragagent.data.model.CompareTable
 import com.example.ecommerceragagent.data.model.Product
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -17,11 +21,12 @@ import okhttp3.sse.EventSource
 import okhttp3.sse.EventSourceListener
 import okhttp3.sse.EventSources
 import org.json.JSONObject
+import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
 class ChatApiService(
     private val baseUrl: String = BuildConfig.API_BASE_URL,
-    client: OkHttpClient = OkHttpClient.Builder()
+    private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.SECONDS)
         .build()
@@ -56,6 +61,7 @@ class ChatApiService(
                 ) {
                     when (type) {
                         "status" -> trySend(ChatEvent.Status(JSONObject(data).getString("message")))
+                        "cart" -> trySend(ChatEvent.CartUpdated(parseCart(data)))
                         "product" -> trySend(ChatEvent.ProductFound(parseProduct(data)))
                         "compare" -> trySend(ChatEvent.Compare(parseCompareTable(data)))
                         "token" -> trySend(ChatEvent.Token(JSONObject(data).getString("content")))
@@ -88,6 +94,80 @@ class ChatApiService(
         )
 
         awaitClose { eventSource.cancel() }
+    }
+
+    suspend fun getCart(conversationId: String): Cart {
+        val request = Request.Builder()
+            .url("${apiBase()}/api/cart?conversation_id=${urlEncode(conversationId)}")
+            .get()
+            .build()
+        return executeCartRequest(request)
+    }
+
+    suspend fun addCartItem(
+        conversationId: String,
+        productId: String,
+        quantity: Int = 1
+    ): Cart {
+        val body = JSONObject()
+            .put("conversation_id", conversationId)
+            .put("product_id", productId)
+            .put("quantity", quantity)
+            .toString()
+            .toRequestBody(jsonMediaType)
+
+        val request = Request.Builder()
+            .url("${apiBase()}/api/cart/items")
+            .post(body)
+            .build()
+        return executeCartRequest(request)
+    }
+
+    suspend fun updateCartItem(
+        conversationId: String,
+        productId: String,
+        quantity: Int
+    ): Cart {
+        val body = JSONObject()
+            .put("conversation_id", conversationId)
+            .put("quantity", quantity)
+            .toString()
+            .toRequestBody(jsonMediaType)
+
+        val request = Request.Builder()
+            .url("${apiBase()}/api/cart/items/${urlEncode(productId)}")
+            .patch(body)
+            .build()
+        return executeCartRequest(request)
+    }
+
+    suspend fun removeCartItem(conversationId: String, productId: String): Cart {
+        val request = Request.Builder()
+            .url(
+                "${apiBase()}/api/cart/items/${urlEncode(productId)}" +
+                    "?conversation_id=${urlEncode(conversationId)}"
+            )
+            .delete()
+            .build()
+        return executeCartRequest(request)
+    }
+
+    suspend fun clearCart(conversationId: String): Cart {
+        val request = Request.Builder()
+            .url("${apiBase()}/api/cart?conversation_id=${urlEncode(conversationId)}")
+            .delete()
+            .build()
+        return executeCartRequest(request)
+    }
+
+    private suspend fun executeCartRequest(request: Request): Cart = withContext(Dispatchers.IO) {
+        client.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                throw IllegalStateException(parseErrorMessage(body, response.code))
+            }
+            parseCart(body)
+        }
     }
 
     private fun parseCompareTable(data: String): CompareTable {
@@ -128,7 +208,10 @@ class ChatApiService(
     }
 
     private fun parseProduct(data: String): Product {
-        val json = JSONObject(data)
+        return parseProduct(JSONObject(data))
+    }
+
+    private fun parseProduct(json: JSONObject): Product {
         return Product(
             productId = json.getString("product_id"),
             title = json.getString("title"),
@@ -140,11 +223,54 @@ class ChatApiService(
         )
     }
 
+    private fun parseCart(data: String): Cart {
+        val json = JSONObject(data)
+        val itemsJson = json.getJSONArray("items")
+        val items = buildList {
+            for (index in 0 until itemsJson.length()) {
+                val itemJson = itemsJson.getJSONObject(index)
+                add(
+                    CartItem(
+                        productId = itemJson.getString("product_id"),
+                        title = itemJson.getString("title"),
+                        category = itemJson.getString("category"),
+                        price = itemJson.getDouble("price"),
+                        brand = itemJson.optStringOrNull("brand"),
+                        subCategory = itemJson.optStringOrNull("sub_category"),
+                        imageUrl = absoluteImageUrl(itemJson.optStringOrNull("image_url")),
+                        quantity = itemJson.getInt("quantity")
+                    )
+                )
+            }
+        }
+
+        return Cart(
+            conversationId = json.getString("conversation_id"),
+            items = items,
+            totalQuantity = json.getInt("total_quantity"),
+            totalPrice = json.getDouble("total_price")
+        )
+    }
+
     private fun absoluteImageUrl(imageUrl: String?): String? {
         if (imageUrl == null || imageUrl.startsWith("http://") || imageUrl.startsWith("https://")) {
             return imageUrl
         }
-        return "${baseUrl.trimEnd('/')}/${imageUrl.trimStart('/')}"
+        return "${apiBase()}/${imageUrl.trimStart('/')}"
+    }
+
+    private fun parseErrorMessage(body: String, statusCode: Int): String {
+        if (body.isBlank()) {
+            return "HTTP $statusCode"
+        }
+        val detail = JSONObject(body).optStringOrNull("detail")
+        return detail ?: "HTTP $statusCode"
+    }
+
+    private fun apiBase(): String = baseUrl.trimEnd('/')
+
+    private fun urlEncode(value: String): String {
+        return URLEncoder.encode(value, Charsets.UTF_8.name())
     }
 
     private fun JSONObject.optStringOrNull(name: String): String? {

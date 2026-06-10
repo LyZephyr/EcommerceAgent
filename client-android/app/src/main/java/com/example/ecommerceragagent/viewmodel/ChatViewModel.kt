@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.ecommerceragagent.data.api.ChatApiService
 import com.example.ecommerceragagent.data.api.ChatEvent
+import com.example.ecommerceragagent.data.model.Cart
 import com.example.ecommerceragagent.data.model.CompareTable
 import com.example.ecommerceragagent.data.model.Message
 import com.example.ecommerceragagent.data.model.MessageRole
@@ -20,11 +21,14 @@ data class ChatUiState(
     val messages: List<Message> = listOf(
         Message(
             role = MessageRole.Assistant,
-            content = "你好，我是电商导购助手。告诉我你的预算、品类或使用场景，我会根据商品库推荐合适的商品。"
+            content = "你好，我是你的电商导购助手。告诉我预算、品类或使用场景，我会根据商品库推荐合适的商品。"
         )
     ),
     val isLoading: Boolean = false,
-    val conversationId: String = UUID.randomUUID().toString()
+    val conversationId: String = UUID.randomUUID().toString(),
+    val cart: Cart = Cart.empty(conversationId),
+    val isCartLoading: Boolean = false,
+    val cartError: String? = null
 )
 
 class ChatViewModel(
@@ -60,6 +64,7 @@ class ChatViewModel(
             apiService.streamChat(trimmed, _uiState.value.conversationId).collect { event ->
                 when (event) {
                     is ChatEvent.Status -> updateStatus(assistantMessage.id, event.message)
+                    is ChatEvent.CartUpdated -> updateCart(event.cart)
                     is ChatEvent.ProductFound -> appendProduct(assistantMessage.id, event.product)
                     is ChatEvent.Compare -> appendCompareTable(assistantMessage.id, event.table)
                     is ChatEvent.Token -> appendToken(assistantMessage.id, event.content)
@@ -67,6 +72,60 @@ class ChatViewModel(
                     is ChatEvent.Error -> showError(assistantMessage.id, event.message)
                 }
             }
+        }
+    }
+
+    fun refreshCart() {
+        launchCartOperation {
+            apiService.getCart(_uiState.value.conversationId)
+        }
+    }
+
+    fun addToCart(product: Product) {
+        launchCartOperation {
+            apiService.addCartItem(
+                conversationId = _uiState.value.conversationId,
+                productId = product.productId
+            )
+        }
+    }
+
+    fun incrementCartItem(productId: String) {
+        val item = _uiState.value.cart.items.firstOrNull { it.productId == productId } ?: return
+        updateCartItem(productId, item.quantity + 1)
+    }
+
+    fun decrementCartItem(productId: String) {
+        val item = _uiState.value.cart.items.firstOrNull { it.productId == productId } ?: return
+        if (item.quantity <= 1) {
+            removeCartItem(productId)
+        } else {
+            updateCartItem(productId, item.quantity - 1)
+        }
+    }
+
+    fun updateCartItem(productId: String, quantity: Int) {
+        launchCartOperation {
+            apiService.updateCartItem(
+                conversationId = _uiState.value.conversationId,
+                productId = productId,
+                quantity = quantity
+            )
+        }
+    }
+
+    fun removeCartItem(productId: String) {
+        launchCartOperation {
+            apiService.removeCartItem(
+                conversationId = _uiState.value.conversationId,
+                productId = productId
+            )
+        }
+    }
+
+    fun clearCart() {
+        launchCartOperation {
+            apiService.clearCart(_uiState.value.conversationId)
         }
     }
 
@@ -90,6 +149,28 @@ class ChatViewModel(
     override fun onCleared() {
         activeJob?.cancel()
         super.onCleared()
+    }
+
+    private fun launchCartOperation(operation: suspend () -> Cart) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isCartLoading = true, cartError = null) }
+            try {
+                val cart = operation()
+                updateCart(cart)
+            } catch (error: Exception) {
+                _uiState.update {
+                    it.copy(cartError = error.message ?: "购物车操作失败")
+                }
+            } finally {
+                _uiState.update { it.copy(isCartLoading = false) }
+            }
+        }
+    }
+
+    private fun updateCart(cart: Cart) {
+        _uiState.update { state ->
+            state.copy(cart = cart, cartError = null)
+        }
     }
 
     private fun appendProduct(messageId: String, product: Product) {
