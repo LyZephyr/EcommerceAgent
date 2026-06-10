@@ -101,19 +101,20 @@ def execute(arguments: dict) -> list[dict]:
 
 async def parse_intent(query: str) -> dict:
     """通过强制工具调用提取检索意图（供离线评估使用）。"""
-    from agent import EVAL_INTENT_ADDENDUM, SYSTEM_PROMPT
+    from agent import SYSTEM_PROMPT
 
     client = AsyncOpenAI(api_key=ARK_API_KEY, base_url=ARK_BASE_URL)
     started_at = time.perf_counter()
     response = await client.chat.completions.create(
         model=ARK_MODEL,
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT + EVAL_INTENT_ADDENDUM},
+            {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": query},
         ],
         tools=[TOOL_DEFINITION],
         tool_choice={"type": "function", "function": {"name": "retrieve_products"}},
         temperature=0.3,
+        extra_body={"thinking": {"type": "disabled"}},
     )
     logger.info(
         "llm_call label=parse_intent model=%s duration_ms=%.2f finish_reason=%s",

@@ -9,7 +9,7 @@
 │                  │ ◀────────────────  │ ┌─────────────┐   ┌──────────────┐   │
 │ ChatViewModel    │ product/compare/   │ │    Agent     │──▶│ Doubao API   │   │
 │                  │ cart/token/done    │ │ (ReAct loop) │   └──────────────┘   │
-│ ChatApiService   │ /status            │ └──────┬──────┘                       │
+│ ChatApiService   │ /status/error      │ └──────┬──────┘                       │
 │ ChatScreen       │                    │        │ tool_calls                   │
 └──────────────────┘                    │        ▼                             │
                                         │ ┌─────────────┐   ┌──────────────┐  │
@@ -40,6 +40,10 @@
     │
     ▼
 ReAct loop: LLM 决策（最多 3 步工具调用）
+    │
+    ├─ LLM 超时 / 工具调用格式错误 / 工具执行异常 / 最终标记非法
+    │   结构化错误反馈给 LLM 修正，同类问题最多连续重试 2 次，单个恢复阶段整体最多 6 次
+    │   重试耗尽后记录错误上下文，/api/chat 发送 error + done
     │
     ├─ 无 tool_calls → 直接回复
     │   适用于：反问澄清 / 追问已展示商品 / 基于历史的对比 / 寒暄
@@ -90,13 +94,15 @@ ReAct loop: LLM 决策（最多 3 步工具调用）
 
 ### server/agent.py
 - Agent 编排核心：最多 3 步 ReAct 工具循环 + 最终回复解析
-- 存放 `SYSTEM_PROMPT`、`EVAL_INTENT_ADDENDUM` 等 LLM 提示词
+- 存放 `SYSTEM_PROMPT` 等 LLM 提示词，包含工具使用规则、回复规则和隐藏事件标记规则
 - LLM 接收对话历史 + 工具定义，决定调用工具还是直接回复；工具结果会回填给 LLM 继续决策
-- 记录 LLM 调用耗时，以及每次工具调用的请求、摘要结果和执行耗时，便于排查 Agent 决策链路
-- 本轮使用 `retrieve_products` 后才追加 `<R>` 推荐标记要求，并基于最终回复发送商品卡片
+- 单次 LLM 调用超过 60 秒会中断，并作为可恢复错误反馈给 LLM 重试
+- 记录 LLM 调用耗时、超时、可恢复错误、重试耗尽，以及每次工具调用的请求、摘要结果和执行耗时，便于排查 Agent 决策链路
+- 对工具参数 JSON 解析失败、工具执行异常、空响应、非法 `<R>/<C>` 标记等边界错误生成结构化反馈，同类问题最多连续重试 2 次，单个恢复阶段整体最多 6 次，避免错误类型来回切换导致无限循环
+- 本轮使用 `retrieve_products` 后，最终回复必须包含合法 `<R>` 推荐标记，并基于标记中的商品 ID 发送商品卡片
 - 直接回复场景：反问澄清、追问已展示商品、寒暄等
 - 购物车工具场景：执行确定性状态操作，成功时产出 CartEvent；最终自然语言回复由 LLM 基于工具结果生成
-- 解析 `<R>` 推荐标记和可选 `<C>` 结构化对比标记，产出 TokenEvent / ProductEvent / CompareEvent / CartEvent / StatusEvent
+- 严格解析 `<R>` 推荐标记和 `<C>` 结构化对比标记，产出 TokenEvent / ProductEvent / CompareEvent / CartEvent / StatusEvent；两类标记不能同时出现，标记后必须保留用户可见文本
 
 ### server/tools/\_\_init\_\_.py
 - 工具注册表：维护工具定义列表和执行器映射
@@ -113,7 +119,7 @@ ReAct loop: LLM 决策（最多 3 步工具调用）
 ### server/tools/retrieve_products.py
 - 定义 `retrieve_products` 工具的 OpenAI Function Calling schema
 - `execute()`：接收 `requests[]`，将每个 request 转为 `retriever.retrieve()` 的 intent dict 并独立执行检索
-- `parse_intent()`：复用 `agent.SYSTEM_PROMPT` + `EVAL_INTENT_ADDENDUM`，通过强制工具调用提取检索意图（供离线评估使用）
+- `parse_intent()`：复用 `agent.SYSTEM_PROMPT`，通过强制工具调用提取检索意图（供离线评估使用）
 
 ### server/conversation.py
 - 内存会话存储：`conversation_id -> list[message]`
@@ -169,7 +175,7 @@ ReAct loop: LLM 决策（最多 3 步工具调用）
 - 配置 CORS 中间件
 - 挂载 `/assets` 静态资源路径，用于返回商品图片
 - 提供 `GET /health`
-- 提供 `POST /api/chat` SSE 端点：委托 `agent.run_turn()` 执行，将事件流转为 SSE
+- 提供 `POST /api/chat` SSE 端点：委托 `agent.run_turn()` 执行，将事件流转为 SSE；Agent 重试耗尽或异常时发送 `error` 事件并以 `done` 结束流
 - 在发送 `product` SSE 事件时写入近期展示商品池
 - 在收到 `CartEvent` 时发送 `cart` SSE 事件，同步最新购物车快照
 - 提供购物车 HTTP 接口：`GET /api/cart`、`POST /api/cart/items`、`PATCH /api/cart/items/{product_id}`、`DELETE /api/cart/items/{product_id}`、`DELETE /api/cart`

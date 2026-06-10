@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI, HTTPException, Query
@@ -13,6 +14,7 @@ import cart_store
 import chroma_sync
 import product_store
 from agent import (
+    AgentRecoveryExhausted,
     CartEvent,
     CompareEvent,
     ProductEvent,
@@ -32,6 +34,7 @@ from schemas import (
 )
 
 configure_logging()
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -67,51 +70,75 @@ async def health():
 async def chat(request: ChatRequest):
     async def event_stream():
         conv_id = get_or_create_id(request.conversation_id)
-        async for event in run_turn(conv_id, request.message):
-            if isinstance(event, ProductEvent):
-                card = Product(
-                    product_id=event.product_data["product_id"],
-                    title=event.product_data["title"],
-                    brand=event.product_data.get("brand"),
-                    category=event.product_data["category"],
-                    sub_category=event.product_data.get("sub_category"),
-                    price=event.product_data["price"],
-                    image_url=event.product_data.get("image_url"),
-                    stock=event.product_data.get("stock"),
-                )
-                cart_store.record_recent_product(
-                    conv_id,
-                    card.model_dump(exclude_none=True),
-                )
-                yield {
-                    "event": "product",
-                    "data": card.model_dump_json(exclude_none=True),
-                }
-            elif isinstance(event, CompareEvent):
-                yield {
-                    "event": "compare",
-                    "data": json.dumps(event.payload, ensure_ascii=False),
-                }
-            elif isinstance(event, CartEvent):
-                yield {
-                    "event": "cart",
-                    "data": json.dumps(event.payload, ensure_ascii=False),
-                }
-            elif isinstance(event, TokenEvent):
-                yield {
-                    "event": "token",
-                    "data": json.dumps(
-                        {"content": event.content}, ensure_ascii=False
-                    ),
-                }
-            elif isinstance(event, StatusEvent):
-                yield {
-                    "event": "status",
-                    "data": json.dumps(
-                        {"message": event.status}, ensure_ascii=False
-                    ),
-                }
-        yield {"event": "done", "data": "{}"}
+        try:
+            async for event in run_turn(conv_id, request.message):
+                if isinstance(event, ProductEvent):
+                    card = Product(
+                        product_id=event.product_data["product_id"],
+                        title=event.product_data["title"],
+                        brand=event.product_data.get("brand"),
+                        category=event.product_data["category"],
+                        sub_category=event.product_data.get("sub_category"),
+                        price=event.product_data["price"],
+                        image_url=event.product_data.get("image_url"),
+                        stock=event.product_data.get("stock"),
+                    )
+                    cart_store.record_recent_product(
+                        conv_id,
+                        card.model_dump(exclude_none=True),
+                    )
+                    yield {
+                        "event": "product",
+                        "data": card.model_dump_json(exclude_none=True),
+                    }
+                elif isinstance(event, CompareEvent):
+                    yield {
+                        "event": "compare",
+                        "data": json.dumps(event.payload, ensure_ascii=False),
+                    }
+                elif isinstance(event, CartEvent):
+                    yield {
+                        "event": "cart",
+                        "data": json.dumps(event.payload, ensure_ascii=False),
+                    }
+                elif isinstance(event, TokenEvent):
+                    yield {
+                        "event": "token",
+                        "data": json.dumps(
+                            {"content": event.content}, ensure_ascii=False
+                        ),
+                    }
+                elif isinstance(event, StatusEvent):
+                    yield {
+                        "event": "status",
+                        "data": json.dumps(
+                            {"message": event.status}, ensure_ascii=False
+                        ),
+                    }
+        except AgentRecoveryExhausted as exc:
+            logger.exception(
+                "chat_agent_recovery_exhausted conversation_id=%s payload=%s",
+                conv_id,
+                json.dumps(exc.to_payload(), ensure_ascii=False),
+            )
+            yield {
+                "event": "error",
+                "data": json.dumps(
+                    {"message": "模型输出连续异常，已停止本轮回复，请稍后重试。"},
+                    ensure_ascii=False,
+                ),
+            }
+        except Exception:
+            logger.exception("chat_stream_failed conversation_id=%s", conv_id)
+            yield {
+                "event": "error",
+                "data": json.dumps(
+                    {"message": "服务处理失败，请稍后重试。"},
+                    ensure_ascii=False,
+                ),
+            }
+        finally:
+            yield {"event": "done", "data": "{}"}
 
     return EventSourceResponse(event_stream())
 

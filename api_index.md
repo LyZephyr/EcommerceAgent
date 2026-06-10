@@ -36,6 +36,7 @@
 | `compare` | `{"products": [{"product_id": "...", "title": "..."}], "rows": [{"dimension": "价格", "values": {"product_id": "..."}}]}` | 多商品对比表数据，仅对比决策场景发送 |
 | `cart` | `{"conversation_id": "...", "items": [...], "total_quantity": 2, "total_price": 198.0, "messages": []}` | 自然语言购物车工具成功执行后同步当前购物车快照 |
 | `token` | `{"content": "这款"}` | LLM 生成的文本片段 |
+| `error` | `{"message": "..."}` | Agent 重试耗尽或服务端处理失败时发送，随后仍会发送 `done` |
 | `done` | `{}` | 流结束标记 |
 
 ---
@@ -182,13 +183,14 @@
 | 常量/类/函数 | 签名 | 说明 |
 |---------|------|------|
 | `SYSTEM_PROMPT` | `str` | Agent 与离线评估共用的 system prompt |
-| `EVAL_INTENT_ADDENDUM` | `str` | 离线评估追加说明：单 query、强制 `retrieve_products`、单 request |
+| `AgentRecoveryExhausted` | `RuntimeError` | 同类可恢复错误连续超过 2 次重试后的终止异常，包含结构化错误 payload |
+| `RecoverableAgentError` | `RuntimeError` | LLM 可修正的边界错误，包括超时、空响应、工具参数错误、工具执行异常和隐藏标记错误 |
 | `TokenEvent` | `@dataclass: content: str` | 文本片段事件 |
 | `ProductEvent` | `@dataclass: product_id: str, product_data: dict` | 商品推荐事件 |
 | `StatusEvent` | `@dataclass: status: str` | 状态提示事件 |
 | `CompareEvent` | `@dataclass: payload: dict` | 结构化对比事件 |
 | `CartEvent` | `@dataclass: payload: dict` | 购物车快照同步事件 |
-| `run_turn` | `async (conversation_id: str, user_message: str) -> AsyncIterator[TokenEvent \| ProductEvent \| StatusEvent \| CompareEvent \| CartEvent]` | 执行一轮对话：最多 3 步 ReAct 工具循环 + 最终回复解析 |
+| `run_turn` | `async (conversation_id: str, user_message: str) -> AsyncIterator[TokenEvent \| ProductEvent \| StatusEvent \| CompareEvent \| CartEvent]` | 执行一轮对话：最多 3 步 ReAct 工具循环 + 最终回复解析；对 LLM 超时、工具调用解析失败、工具执行异常、非法 `<R>/<C>` 标记等可恢复错误进行结构化反馈，同类错误最多连续重试 2 次，单个恢复阶段整体最多 6 次 |
 
 ### tools/\_\_init\_\_.py
 
@@ -220,7 +222,7 @@
 |-----------|------|------|
 | `TOOL_DEFINITION` | `dict` | OpenAI Function Calling 格式的工具定义，参数为 `requests[]` |
 | `execute` | `(arguments: dict) -> list[dict]` | 遍历 `requests[]`，每个 request 独立调用 `retriever.retrieve()`，返回多组 Top-K 商品 |
-| `parse_intent` | `async (query: str) -> dict` | 使用 `SYSTEM_PROMPT` + `EVAL_INTENT_ADDENDUM`（`temperature=0.3`），强制工具调用提取单 request 检索意图（供离线评估使用） |
+| `parse_intent` | `async (query: str) -> dict` | 使用 `SYSTEM_PROMPT`（`temperature=0.3`），强制工具调用提取单 request 检索意图（供离线评估使用） |
 
 `retrieve_products` 工具参数示例：
 
