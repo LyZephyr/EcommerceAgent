@@ -13,7 +13,7 @@ sys.path.insert(0, str(SERVER_DIR))
 import cart_store  # noqa: E402
 import main  # noqa: E402
 import product_store  # noqa: E402
-from agent import CartEvent, TokenEvent  # noqa: E402
+from agent import BlockProductEvent, BlockTextEvent, CartEvent  # noqa: E402
 from tools import execute  # noqa: E402
 
 
@@ -98,6 +98,10 @@ def test_chat_stream_emits_cart_event(monkeypatch):
     asyncio.run(_test_chat_stream_emits_cart_event(monkeypatch))
 
 
+def test_chat_stream_emits_block_events_only(monkeypatch):
+    asyncio.run(_test_chat_stream_emits_block_events_only(monkeypatch))
+
+
 async def _test_chat_stream_emits_cart_event(monkeypatch):
     conversation_id = uuid4().hex
     cart = {
@@ -109,7 +113,7 @@ async def _test_chat_stream_emits_cart_event(monkeypatch):
 
     async def fake_run_turn(conv_id: str, user_message: str):
         yield CartEvent(cart | {"conversation_id": conv_id})
-        yield TokenEvent("已加入购物车。")
+        yield BlockTextEvent("asst-test", "blk-1", "已加入购物车。")
 
     monkeypatch.setattr(main, "run_turn", fake_run_turn)
 
@@ -122,8 +126,33 @@ async def _test_chat_stream_emits_cart_event(monkeypatch):
     assert response.status_code == 200
     assert "event: cart" in response.text
     assert '"total_quantity": 1' in response.text
-    assert "event: token" in response.text
+    assert "event: block" in response.text
+    assert '"type": "text"' in response.text
     assert "event: done" in response.text
+
+
+async def _test_chat_stream_emits_block_events_only(monkeypatch):
+    conversation_id = uuid4().hex
+    product = _product("p-1", title="测试牛奶")
+
+    async def fake_run_turn(conv_id: str, user_message: str):
+        yield BlockTextEvent("asst-test", "blk-1", "整体建议。")
+        yield BlockProductEvent("asst-test", "blk-2", "p-1", product)
+
+    monkeypatch.setattr(main, "run_turn", fake_run_turn)
+
+    async with _client() as client:
+        response = await client.post(
+            "/api/chat",
+            json={
+                "conversation_id": conversation_id,
+                "message": "推荐",
+            },
+        )
+
+    assert "event: block" in response.text
+    assert '"type": "text"' in response.text
+    assert '"type": "product"' in response.text
 
 
 def _client() -> httpx.AsyncClient:

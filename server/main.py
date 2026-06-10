@@ -5,7 +5,7 @@ import json
 import logging
 from contextlib import asynccontextmanager, suppress
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
@@ -15,11 +15,12 @@ import chroma_sync
 import product_store
 from agent import (
     AgentRecoveryExhausted,
+    BlockCompareEvent,
+    BlockProductEvent,
+    BlockTextDeltaEvent,
+    BlockTextEvent,
     CartEvent,
-    CompareEvent,
-    ProductEvent,
-    StatusEvent,
-    TokenEvent,
+    StructuredStatusEvent,
     run_turn,
 )
 from config import DATASET_DIR
@@ -30,6 +31,7 @@ from schemas import (
     CartSnapshot,
     ChatRequest,
     Product,
+    ProductDetail,
     UpdateCartItemRequest,
 )
 
@@ -67,54 +69,100 @@ async def health():
 
 
 @app.post("/api/chat")
-async def chat(request: ChatRequest):
+async def chat(chat_request: ChatRequest, http_request: Request):
     async def event_stream():
-        conv_id = get_or_create_id(request.conversation_id)
+        conv_id = get_or_create_id(chat_request.conversation_id)
+        turn_events = run_turn(conv_id, chat_request.message)
+        disconnected = False
         try:
-            async for event in run_turn(conv_id, request.message):
-                if isinstance(event, ProductEvent):
-                    card = Product(
-                        product_id=event.product_data["product_id"],
-                        title=event.product_data["title"],
-                        brand=event.product_data.get("brand"),
-                        category=event.product_data["category"],
-                        sub_category=event.product_data.get("sub_category"),
-                        price=event.product_data["price"],
-                        image_url=event.product_data.get("image_url"),
-                        stock=event.product_data.get("stock"),
-                    )
-                    cart_store.record_recent_product(
-                        conv_id,
-                        card.model_dump(exclude_none=True),
-                    )
-                    yield {
-                        "event": "product",
-                        "data": card.model_dump_json(exclude_none=True),
-                    }
-                elif isinstance(event, CompareEvent):
-                    yield {
-                        "event": "compare",
-                        "data": json.dumps(event.payload, ensure_ascii=False),
-                    }
-                elif isinstance(event, CartEvent):
+            async for event in turn_events:
+                if await http_request.is_disconnected():
+                    disconnected = True
+                    logger.info("chat_stream_disconnected conversation_id=%s", conv_id)
+                    logger.info("llm_call_cancelled conversation_id=%s", conv_id)
+                    await turn_events.aclose()
+                    return
+                if isinstance(event, CartEvent):
                     yield {
                         "event": "cart",
                         "data": json.dumps(event.payload, ensure_ascii=False),
                     }
-                elif isinstance(event, TokenEvent):
+                elif isinstance(event, BlockTextEvent):
                     yield {
-                        "event": "token",
+                        "event": "block",
                         "data": json.dumps(
-                            {"content": event.content}, ensure_ascii=False
+                            {
+                                "type": "text",
+                                "message_id": event.message_id,
+                                "block_id": event.block_id,
+                                "content": event.content,
+                            },
+                            ensure_ascii=False,
                         ),
                     }
-                elif isinstance(event, StatusEvent):
+                elif isinstance(event, BlockTextDeltaEvent):
+                    yield {
+                        "event": "block",
+                        "data": json.dumps(
+                            {
+                                "type": "text_delta",
+                                "message_id": event.message_id,
+                                "block_id": event.block_id,
+                                "content": event.content,
+                            },
+                            ensure_ascii=False,
+                        ),
+                    }
+                elif isinstance(event, BlockProductEvent):
+                    card = _product_card_from_data(event.product_data)
+                    if event.group:
+                        card.group_label = event.group
+                    cart_store.record_recent_product(
+                        conv_id,
+                        card.model_dump(exclude_none=True),
+                    )
+                    payload = {
+                        "type": "product",
+                        "message_id": event.message_id,
+                        "block_id": event.block_id,
+                        "product": card.model_dump(exclude_none=True),
+                    }
+                    if event.group:
+                        payload["group"] = event.group
+                    yield {
+                        "event": "block",
+                        "data": json.dumps(payload, ensure_ascii=False),
+                    }
+                elif isinstance(event, BlockCompareEvent):
+                    yield {
+                        "event": "block",
+                        "data": json.dumps(
+                            {
+                                "type": "compare",
+                                "message_id": event.message_id,
+                                "block_id": event.block_id,
+                                "compare": event.payload,
+                            },
+                            ensure_ascii=False,
+                        ),
+                    }
+                elif isinstance(event, StructuredStatusEvent):
+                    data = {
+                        "phase": event.phase,
+                        "message": event.message,
+                        "step": event.step,
+                        "total_steps": event.total_steps,
+                    }
                     yield {
                         "event": "status",
-                        "data": json.dumps(
-                            {"message": event.status}, ensure_ascii=False
-                        ),
+                        "data": json.dumps(data, ensure_ascii=False),
                     }
+        except asyncio.CancelledError:
+            disconnected = True
+            logger.info("chat_stream_cancelled conversation_id=%s", conv_id)
+            logger.info("llm_call_cancelled conversation_id=%s", conv_id)
+            await turn_events.aclose()
+            raise
         except AgentRecoveryExhausted as exc:
             logger.exception(
                 "chat_agent_recovery_exhausted conversation_id=%s payload=%s",
@@ -138,9 +186,22 @@ async def chat(request: ChatRequest):
                 ),
             }
         finally:
-            yield {"event": "done", "data": "{}"}
+            if not disconnected:
+                yield {"event": "done", "data": "{}"}
 
     return EventSourceResponse(event_stream())
+
+
+def _product_card_from_data(product_data: dict) -> Product:
+    return Product(**product_store.product_card_payload(product_data))
+
+
+@app.get("/api/products/{product_id}", response_model=ProductDetail)
+async def get_product_detail(product_id: str):
+    product_detail = product_store.get_product_detail(product_id)
+    if product_detail is None:
+        raise HTTPException(status_code=404, detail="商品不存在。")
+    return product_detail
 
 
 @app.get("/api/cart", response_model=CartSnapshot)

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime
 from decimal import Decimal
 from urllib.parse import quote_plus
@@ -180,6 +181,57 @@ def get_product_by_id(product_id: str) -> dict | None:
     return products[0] if products else None
 
 
+def get_product_detail(product_id: str) -> dict | None:
+    """返回商品详情页数据，不暴露原始 raw_payload。"""
+    product = get_product_by_id(product_id)
+    if product is None:
+        return None
+
+    raw_payload = _loads_raw_payload(product)
+    knowledge = raw_payload.get("rag_knowledge") or {}
+    reviews = knowledge.get("user_reviews") or []
+
+    return product_card_payload(product) | {
+        "description": product.get("description") or "",
+        "specs": _specs_from_raw_payload(raw_payload),
+        "faq": _faq_from_raw_payload(raw_payload),
+        "review_summary": _review_summary_from_raw_payload(reviews),
+    }
+
+
+def product_card_payload(product: dict, *, group_label: str | None = None) -> dict:
+    """构造聊天商品卡片和详情页共用的公开商品字段。"""
+    stock_status, unavailable_reason = product_availability(product)
+    payload = {
+        "product_id": str(product["product_id"]),
+        "title": str(product["title"]),
+        "brand": product.get("brand"),
+        "category": str(product["category"]),
+        "sub_category": product.get("sub_category"),
+        "price": float(product["price"]),
+        "image_url": product.get("image_url"),
+        "stock": int(product.get("stock") or 0),
+        "detail_url": f"/api/products/{product['product_id']}",
+        "landing_url": _landing_url(product),
+        "highlights": _highlights_from_product(product),
+        "stock_status": stock_status,
+        "unavailable_reason": unavailable_reason,
+        "group_label": group_label,
+    }
+    return payload
+
+
+def product_availability(product: dict) -> tuple[str, str | None]:
+    stock = int(product.get("stock") or 0)
+    if not product.get("is_active"):
+        return "inactive", "商品已下架"
+    if stock <= 0:
+        return "out_of_stock", "商品库存不足"
+    if stock <= 3:
+        return "low_stock", None
+    return "in_stock", None
+
+
 def get_products_updated_after(updated_after: datetime) -> list[dict]:
     statement = (
         select(products_table)
@@ -287,6 +339,93 @@ def _image_url(product: dict) -> str:
     category_dir = product.get("_category_dir", "")
     product_id = product["product_id"]
     return f"/assets/{category_dir}/images/{product_id}_live.jpg"
+
+
+def _loads_raw_payload(product: dict) -> dict:
+    raw_payload = product.get("raw_payload")
+    if not raw_payload:
+        return {}
+    return json.loads(raw_payload)
+
+
+def _landing_url(product: dict) -> str | None:
+    raw_payload = _loads_raw_payload(product)
+    landing_url = raw_payload.get("landing_url") or raw_payload.get("url")
+    return str(landing_url) if landing_url else None
+
+
+def _highlights_from_product(product: dict) -> list[str]:
+    raw_payload = _loads_raw_payload(product)
+    knowledge = raw_payload.get("rag_knowledge") or {}
+    highlights = raw_payload.get("highlights")
+    if isinstance(highlights, list):
+        return [str(item).strip() for item in highlights[:4] if str(item).strip()]
+
+    marketing = str(knowledge.get("marketing_description") or "")
+    sentences = _split_sentences(marketing)
+    return sentences[:4]
+
+
+def _specs_from_raw_payload(raw_payload: dict) -> list[dict[str, str]]:
+    specs_by_name: dict[str, list[str]] = {}
+    for sku in raw_payload.get("skus") or []:
+        properties = sku.get("properties") or {}
+        for name, value in properties.items():
+            if value is None:
+                continue
+            text_value = str(value).strip()
+            if not text_value:
+                continue
+            values = specs_by_name.setdefault(str(name), [])
+            if text_value not in values:
+                values.append(text_value)
+    return [
+        {"name": name, "value": " / ".join(values)}
+        for name, values in specs_by_name.items()
+        if values
+    ]
+
+
+def _faq_from_raw_payload(raw_payload: dict) -> list[dict[str, str]]:
+    knowledge = raw_payload.get("rag_knowledge") or {}
+    faq_items = knowledge.get("official_faq") or []
+    return [
+        {
+            "question": str(item.get("question") or "").strip(),
+            "answer": str(item.get("answer") or "").strip(),
+        }
+        for item in faq_items[:5]
+        if str(item.get("question") or "").strip()
+        and str(item.get("answer") or "").strip()
+    ]
+
+
+def _review_summary_from_raw_payload(reviews: list[dict]) -> dict:
+    ratings = [
+        float(review["rating"])
+        for review in reviews
+        if isinstance(review, dict) and review.get("rating") is not None
+    ]
+    average_rating = round(sum(ratings) / len(ratings), 1) if ratings else None
+    highlights = [
+        str(review.get("content") or "").strip()
+        for review in reviews[:3]
+        if isinstance(review, dict) and str(review.get("content") or "").strip()
+    ]
+    return {
+        "average_rating": average_rating,
+        "total_count": len(reviews),
+        "highlights": highlights,
+    }
+
+
+def _split_sentences(text: str) -> list[str]:
+    parts = [
+        part.strip()
+        for part in re.split(r"[。！？!?；;\n]+", text)
+        if part.strip()
+    ]
+    return [part[:48] for part in parts if part]
 
 
 if __name__ == "__main__":

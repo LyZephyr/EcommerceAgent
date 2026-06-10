@@ -198,6 +198,100 @@ async def _test_add_uses_latest_mysql_price():
     assert "价格已更新" in body["messages"][0]
 
 
+def test_get_cart_refreshes_latest_mysql_price(monkeypatch):
+    products = {
+        "p-1": _product("p-1", price=19.9),
+    }
+    _install_product_store(monkeypatch, products)
+    asyncio.run(_test_get_cart_refreshes_latest_mysql_price(products))
+
+
+async def _test_get_cart_refreshes_latest_mysql_price(products: dict[str, dict]):
+    conversation_id = uuid4().hex
+    cart_store.record_recent_product(conversation_id, _product("p-1", price=19.9))
+
+    async with _client() as client:
+        added = await client.post(
+            "/api/cart/items",
+            json={
+                "conversation_id": conversation_id,
+                "product_id": "p-1",
+                "quantity": 2,
+            },
+        )
+        products["p-1"]["price"] = 24.9
+
+        refreshed = await client.get(
+            "/api/cart",
+            params={"conversation_id": conversation_id},
+        )
+        refreshed_again = await client.get(
+            "/api/cart",
+            params={"conversation_id": conversation_id},
+        )
+
+    body = refreshed.json()
+    assert added.status_code == 200
+    assert added.json()["messages"] == []
+    assert refreshed.status_code == 200
+    assert body["items"][0]["price"] == 24.9
+    assert body["total_price"] == 49.8
+    assert body["messages"] == [
+        "「测试商品」价格已更新：已从 ¥19.90 更新为 ¥24.90。",
+    ]
+    assert refreshed_again.json()["messages"] == []
+
+
+def test_get_cart_refreshes_latest_mysql_availability(monkeypatch):
+    products = {
+        "p-1": _product("p-1", price=19.9),
+    }
+    _install_product_store(monkeypatch, products)
+    asyncio.run(_test_get_cart_refreshes_latest_mysql_availability(products))
+
+
+async def _test_get_cart_refreshes_latest_mysql_availability(
+    products: dict[str, dict],
+):
+    conversation_id = uuid4().hex
+    cart_store.record_recent_product(conversation_id, _product("p-1", price=19.9))
+
+    async with _client() as client:
+        added = await client.post(
+            "/api/cart/items",
+            json={
+                "conversation_id": conversation_id,
+                "product_id": "p-1",
+                "quantity": 2,
+            },
+        )
+        products["p-1"]["stock"] = 0
+
+        out_of_stock = await client.get(
+            "/api/cart",
+            params={"conversation_id": conversation_id},
+        )
+        products["p-1"]["stock"] = 5
+        products["p-1"]["is_active"] = False
+
+        inactive = await client.get(
+            "/api/cart",
+            params={"conversation_id": conversation_id},
+        )
+
+    assert added.status_code == 200
+    assert out_of_stock.status_code == 200
+    out_of_stock_body = out_of_stock.json()
+    assert out_of_stock_body["items"][0]["product_id"] == "p-1"
+    assert out_of_stock_body["items"][0]["stock"] == 0
+    assert out_of_stock_body["items"][0]["stock_status"] == "out_of_stock"
+    assert out_of_stock_body["items"][0]["unavailable_reason"] == "库存不足"
+    assert inactive.status_code == 200
+    inactive_body = inactive.json()
+    assert inactive_body["items"] == []
+    assert inactive_body["messages"] == ["「测试商品」已下架，已从购物车移除。"]
+
+
 def test_add_rejects_out_of_stock_mysql_product(monkeypatch):
     _install_product_store(
         monkeypatch,

@@ -23,7 +23,7 @@
 ├── client-android/             # Android 客户端 (Kotlin/Compose)
 ├── ecommerce_agent_dataset/    # 商品数据集 (4 类目 × 25 条)
 ├── docker-compose.yml          # 开发用 MySQL 容器
-├── PLAN.md                     # 实施计划
+├── PLAN.md                     # 当前系统状态
 ├── architecture.md             # 系统架构
 └── api_index.md                # API 索引
 ```
@@ -136,7 +136,7 @@ server/.venv/bin/python eval/run_retrieval_eval.py
 
 ## 文档
 
-- [实施计划](PLAN.md)
+- [当前系统状态](PLAN.md)
 - [系统架构](architecture.md)
 - [API 索引](api_index.md)
 - [需求文档](Task.md)

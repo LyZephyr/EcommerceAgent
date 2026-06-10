@@ -1,404 +1,539 @@
-# 电商导购 Agent 后续实施任务
+# 电商导购 Agent 体验升级计划
 
-## 一、当前系统状态
+## 当前已实现能力
 
-项目已经完成 MVP 核心链路：后端基于 FastAPI + SSE 提供流式对话接口，Agent 采用单跳工具调用架构，通过 `retrieve_products` 工具执行 RAG 商品检索；客户端为 Android Kotlin/Compose，支持聊天输入、流式文本渲染、商品卡片展示、商品详情弹窗和基础多轮对话。
+本项目已完成基于 RAG 的电商导购 MVP：后端为 Python/FastAPI，客户端为 Android Kotlin/Compose。核心链路已经跑通：
 
-当前已完成能力包括：
+- `POST /api/chat` 通过 SSE 返回 `status`、`product`、`compare`、`cart`、`token`、`error`、`done` 事件。
+- Agent 可调用 `retrieve_products` 检索商品，检索结果由 MySQL 补全价格、库存、图片等权威数据。
+- Android 客户端已能消费 SSE，展示聊天消息、横向商品卡片、对比表、商品弹窗和购物车。
+- 后端已通过 `<R>` 推荐标记约束商品卡片输出，通过 `<C>` 标记输出结构化对比数据。
 
-- 商品检索：bge-base-zh-v1.5 embedding、ChromaDB 向量库、metadata filter、must/exclude 加权重排。
-- Agent 编排：LLM 自主决定是否调用检索工具，支持普通推荐、反问澄清、多轮追问和否定约束。
-- 推荐展示：后端通过 `<R>` 标记约束商品卡片输出，客户端消费 `product` SSE 事件渲染商品卡片。
-- 对比与组合推荐：后端支持 `requests[]` 多子需求检索和 `<C>` 结构化对比事件。
-- 购物车闭环后端：已完成内存购物车、HTTP 操作接口、自然语言购物车工具和 SSE `cart` 同步事件。
-- 可信商品快照：购物车加购只接受最近展示商品池中的后端商品快照，避免客户端或模型自行拼装标题、价格和图片。
-- 评估体系：已有离线检索评估脚本和 ground truth，用于验证检索质量。
+这些能力证明端到端链路可用，但当前交互仍偏 MVP：AI 长文本、商品卡片、对比表和等待状态没有被组织成适合移动端的导购体验。
 
-下一阶段重点转向**数据一致性保障与特征治理**：引入 MySQL 作为商品权威源，运行时将数据集加载至 MySQL；ChromaDB 作为语义索引与 MySQL 初始保持一致，后台每 3 分钟从 MySQL 增量同步。线上推荐链路允许 ChromaDB 短暂滞后，但价格、库存、上下架等关键字段必须以 MySQL 实时状态为准。
+## 当前问题
 
-## 二、数据一致性目标
+1. AI 回复信息密度过高。长段文本、Markdown 标题、编号和注意事项直接铺满屏幕，用户需要长时间滚动才能看到商品。
+2. Markdown 没有完整渲染。`###`、`**`、表格竖线等语法会直接显示。
+3. 商品卡片没有真正无缝嵌入对话流。目前卡片统一挂在整条回复之后，并以横向列表展示，容易被长文本和对比表压到后面。
+4. 商品卡片不支持真正的落地页跳转。当前点击商品只打开弹窗，不是独立详情页或外部商品页。
+5. 对比表以横向表格展示，手机端列宽受限，需要左右滑动，文字容易裁切。
+6. 首次等待时间较长，状态事件粒度不足；最终 `token` 不是类似 ChatGPT、豆包的真逐字流式，而是后端解析完成后一次性发送可见文本。
 
-### 核心原则
+## 任务目标
 
-- MySQL 是商品价格、库存、上下架状态和商品主数据的唯一权威源。
-- ChromaDB 只负责语义召回和检索辅助，不作为价格、库存等关键字段的最终依据。
-- LLM 只负责推荐理由和表达，不允许生成或修改商品价格、库存、优惠等关键参数。
-- 推荐展示、商品卡片、购物车加购和后续模拟下单前，都必须读取或校验 MySQL 最新状态。
-- 接受 ChromaDB 语义索引最多 3 分钟的最终一致性，但不接受价格、库存、上下架状态在用户可见结果中滞后。
-
-### 目标能力
-
-- Server 启动时自动读取 `ecommerce_agent_dataset/`，将商品数据幂等写入 MySQL。
-- ChromaDB 初始索引与 MySQL 商品数据保持一致。
-- 检索时先从 ChromaDB 召回候选 `product_id`，再从 MySQL 实时补全商品详情。
-- MySQL 中无库存、已下架、价格不满足用户约束的商品，不返回给 LLM 和客户端。
-- 后台任务每 3 分钟扫描 MySQL 变更，并增量更新 ChromaDB。
-- 同步期间服务继续可用；此时 ChromaDB 可能召回旧候选，但最终展示结果仍由 MySQL 过滤。
-
-### 非目标
-
-- 不实现真实支付、真实库存扣减和订单履约。
-- 不引入复杂分布式事务、消息队列或 CDC。
-- 不要求 ChromaDB 与 MySQL 强一致。
-- 不为了兼容旧数据结构保留双写分支；后续商品权威字段统一走 MySQL。
-
-## 三、总体设计
-
-### MySQL 商品权威源
-
-新增商品表，建议命名为 `products`：
-
-
-| 字段               | 说明                   |
-| ---------------- | -------------------- |
-| `product_id`     | 商品唯一 ID，主键           |
-| `title`          | 商品标题                 |
-| `brand`          | 品牌                   |
-| `category`       | 一级类目                 |
-| `sub_category`   | 二级类目                 |
-| `price`          | 最新价格                 |
-| `stock`          | 最新库存                 |
-| `is_active`      | 是否上架                 |
-| `description`    | 商品详情描述               |
-| `image_url`      | 主图地址                 |
-| `embedding_text` | 用于生成 embedding 的紧凑文本 |
-| `created_at`     | 创建时间                 |
-| `updated_at`     | 最近更新时间               |
-
-
-设计要求：
-
-- `product_id` 必须稳定，作为 MySQL、ChromaDB、购物车和客户端商品卡片之间的关联键。
-- 启动加载数据集时使用 upsert，避免重复插入。
-- `updated_at` 用于后台同步任务判断哪些商品需要重新写入 ChromaDB。
-- 数据集中的 `stock` 字段进入 MySQL 后即视为权威库存；若后续新增商品缺失该字段，加载时默认 `stock = 2`。
-- 商品下架不删除 MySQL 记录，只更新 `is_active = false`，便于购物车和历史会话做明确校验。
-
-### ChromaDB 语义索引
-
-ChromaDB 存储内容：
-
-- `product_id`
-- embedding 向量
-- 用于 LLM 阅读的商品文本或摘要
-- 稳定 metadata：`category`、`sub_category`、`brand`
-- 可选 metadata：价格区间，但不能作为最终价格判断依据
-
-设计要求：
-
-- ChromaDB 的文档内容从 MySQL 的 `embedding_text` 或商品字段生成。
-- ChromaDB 中可以保留商品描述、卖点、评价摘要等相对稳定内容。
-- 价格、库存、上下架等易变字段即使写入 ChromaDB，也只能作为粗召回辅助。
-- 为避免价格变动导致漏召回，预算筛选应优先在 MySQL 层做精确过滤；ChromaDB 价格 filter 只能在确认风险可接受时使用。
-
-### 在线推荐链路
-
-推荐链路调整为：
+本轮升级目标是把回复从“长文本 + 横向卡片列表”改成“结构化块式对话流”，并实现真 streaming：
 
 ```text
-用户消息
-  -> Agent 决策调用 retrieve_products
-  -> ChromaDB 语义召回 Top-N product_id
-  -> MySQL 批量查询最新商品状态
-  -> 过滤 is_active=false / stock<=0 / 最新价格不满足约束的商品
-  -> 将 MySQL 商品快照注入 LLM
-  -> LLM 生成推荐理由
-  -> SSE product 事件发送 MySQL 商品快照
+整体建议：优先选常温奶，日常早餐和办公室补充都更方便。
+
+[商品卡片 A，居中独立展示，可点击进入详情页]
+A 的推荐理由逐字流式输出...
+
+[商品卡片 B，居中独立展示，可点击进入详情页]
+B 的推荐理由逐字流式输出...
 ```
 
-关键约束：
+必须满足：
 
-- `ProductEvent.product_data.price` 必须来自 MySQL。
-- 最近展示商品池记录的也必须是 MySQL 商品快照。
-- 购物车加购时再次读取或校验 MySQL，不能只信任最近展示商品池里的旧价格。
-- 如果商品展示后价格变动，购物车应使用最新价格，并向用户提示价格已更新。
-- 如果商品展示后库存变为 0 或下架，加购应失败并说明原因。
+- 商品卡片与文本按顺序交替出现。
+- 每个商品卡片独立居中显示，不再把多个商品挤在一横排。
+- 文本保持类似 ChatGPT、豆包的逐字或短片段流式输出。
+- 商品卡片支持跳转落地页；没有真实外部链接时，先实现 App 内原生商品详情页。
+- 等待态分阶段展示，用户在推荐文本到达前也能看到明确进度。
+- 推荐正文移动端友好，禁止 Markdown 标题、Markdown 表格和长篇编号说明。
 
-### 后台 ChromaDB 同步
+## 总体方案
 
-后台同步任务每 3 分钟执行一次：
+核心改造方向是：服务端输出有顺序的结构化块；客户端按块渲染文本、商品卡片和对比。状态不作为消息块进入聊天流，而是作为当前 streaming 状态单独维护，完成或失败后清空。
+
+`POST /api/chat` 只提供新版块式 SSE 协议：
+
+```json
+{
+  "message": "推荐一些牛奶",
+  "conversation_id": "..."
+}
+```
+
+- 服务端发送 `block`、`status`、`cart`、`error`、`done`。
+- 不保留旧 `product`、`compare`、`token` SSE 事件。
+- 在整个计划完成前，不要求系统持续兼容旧客户端或保持每个阶段都端到端可用。
+
+新版推荐使用 `block` SSE 事件：
+
+```json
+{
+  "type": "text",
+  "message_id": "assistant-message-id",
+  "block_id": "block-1",
+  "content": "整体建议：优先选常温奶，早餐和办公室补充都方便。"
+}
+```
+
+```json
+{
+  "type": "text_delta",
+  "message_id": "assistant-message-id",
+  "block_id": "block-1",
+  "content": "整"
+}
+```
+
+```json
+{
+  "type": "product",
+  "message_id": "assistant-message-id",
+  "block_id": "block-2",
+  "product": {
+    "product_id": "...",
+    "title": "...",
+    "brand": "...",
+    "category": "...",
+    "sub_category": "...",
+    "price": 85.0,
+    "image_url": "...",
+    "stock": 12,
+    "detail_url": "/api/products/...",
+    "landing_url": null,
+    "highlights": ["常温保存", "适合早餐"],
+    "stock_status": "in_stock"
+  }
+}
+```
+
+ID 生成规则：
+
+- `message_id`：服务端在 `run_turn()` 开始时生成一次，建议使用 `asst-<uuid>`；本轮所有 `block` 事件共用同一个 `message_id`。
+- `block_id`：服务端在每个可见块创建时按顺序分配，建议使用 `blk-1`、`blk-2`、`blk-3`；同一个文本块的完整 `text` 或所有 `text_delta` 共享同一个 `block_id`。
+- 推荐链路的典型块顺序为：`INTRO text`、`product A`、`reason A text`、`product B`、`reason B text`、`OUTRO text`。
+
+状态事件仍可使用 `block` 包装，也可继续使用 `status` 事件；但客户端不把状态写入 `Message.blocks`：
+
+```json
+{
+  "type": "status",
+  "phase": "retrieving",
+  "message": "正在检索商品...",
+  "step": 1,
+  "total_steps": 4
+}
+```
+
+## 推荐标记协议
+
+为降低真 streaming 的解析复杂度，不使用 `<R>{JSON}</R>`。推荐场景改为固定标记协议，服务端只需识别少量固定标签：
+
+```xml
+<R>
+<INTRO>整体建议：优先选择常温纯牛奶，早餐、办公室和宿舍都方便。</INTRO>
+<ITEM id="p1" group="纯牛奶">
+<REASON>这款容量和价格更均衡，适合家庭早餐和日常囤货。</REASON>
+</ITEM>
+<ITEM id="p2" group="有机牛奶">
+<REASON>这款更适合看重奶源认证的家庭，老人小孩饮用更安心。</REASON>
+</ITEM>
+<OUTRO>如果你更看重性价比，优先选第一款；更看重有机认证，选第二款。</OUTRO>
+</R>
+```
+
+跨类目组合推荐示例：
+
+```xml
+<R>
+<INTRO>整体建议：海边出行建议同时准备防晒和轻薄外套，先保证防晒，再兼顾透气。</INTRO>
+<ITEM id="sunscreen-1" group="防晒护肤">
+<REASON>这款适合长时间户外使用，防晒强度和清爽度更均衡。</REASON>
+</ITEM>
+<ITEM id="jacket-1" group="度假穿搭">
+<REASON>这款轻薄好收纳，适合早晚温差和空调环境。</REASON>
+</ITEM>
+<OUTRO>如果预算有限，优先保证防晒，再补充外套。</OUTRO>
+</R>
+```
+
+解析与校验规则：
+
+- 推荐场景中，`<R>...</R>` 之外不允许有非空可见文本，避免 LLM 两边重复写。
+- `id` 必须来自本轮工具候选。
+- `<ITEM>` 属性值只允许字母、数字、汉字、`-`、`_`、空格和常见 ASCII 标点中的冒号/斜杠；禁止 `"`、`'`、`<`、`>`、`\`，避免流式属性解析需要处理复杂转义。
+- `group` 可选，用于跨类目组合推荐和客户端分组展示；当本轮 `retrieve_products` 包含多个非空 `requests[].label` 时，`group` 必须从这些 label 中选择，服务端用 `label -> product_id` 映射校验；单 request 或无 label 时，`group` 必须省略。
+- `<INTRO>`、`<REASON>`、`<OUTRO>` 是用户可见文本。
+- `<INTRO>` 必须位于所有 `<ITEM>` 之前。
+- 每个 `<ITEM>` 内必须且只能有一个 `<REASON>`。
+- `<ITEM>` 不允许嵌套 `<ITEM>`、`<INTRO>`、`<OUTRO>`。
+- `<OUTRO>` 可选，但如果存在，必须位于所有 `<ITEM>` 之后。
+- 违反标签顺序、嵌套或数量约束时触发可恢复错误，由 LLM 重试。
+- 推荐正文长度按字段限制，而不是整段总长限制：
+  - `INTRO` 建议不超过 40 个中文字符。
+  - 每个 `REASON` 建议不超过 45 个中文字符。
+  - `OUTRO` 建议不超过 40 个中文字符，可为空。
+- `_MOBILE_VISIBLE_REPLY_MAX_CHARS` 继续用于非推荐纯文本场景，如澄清、寒暄、购物车操作回复；推荐场景改用 `INTRO`、`REASON`、`OUTRO` 字段级长度限制。
+- 仍禁止 Markdown 标题、Markdown 表格、粗体标记和长编号列表。
+- `<R>` 和 `<C>` 仍不能同时出现。
+- 普通澄清、寒暄、购物车操作回复不输出 `<R>`，直接输出短文本。
+- 对比仍使用 `<C>` 结构化标记。本轮阶段 3 不改造 `<C>` 为固定标签：对比场景在 streaming completion 下缓冲到 `</C>` 闭合后，一次性解析并发送完整 compare block；推荐链路不受该缓冲影响。后续可单独规划 `<COMPARE>` 固定标签协议。
+
+历史落库规则：
+
+- conversation 中不保存隐藏标签原文。
+- 推荐完成后，将已发送给客户端的可见内容拼成一条 assistant 历史，格式为：
 
 ```text
-读取 last_sync_at
-  -> 查询 MySQL 中 updated_at > last_sync_at 的商品
-  -> 对新增/修改/重新上架商品生成 embedding_text 和 embedding
-  -> upsert 到 ChromaDB
-  -> 对下架商品从 ChromaDB 删除，或更新 inactive metadata
-  -> 成功后更新 last_sync_at
+整体建议：...
+[商品] 商品标题A（product_id=p1）：A 的推荐理由
+[商品] 商品标题B（product_id=p2）：B 的推荐理由
+总结：...
 ```
 
-同步要求：
+- 这样下一轮用户追问“第一款怎么样”时，LLM 能看到商品标题、ID 和推荐理由；必要时仍可调用 `list_recent_products` 获取最新商品快照。
+- 如果用户取消或 SSE 中断，服务端将已经发送的可见文本片段和商品 ID 落库，并追加 `[interrupted]`，避免下一轮上下文完全丢失。
 
-- 同步任务不能阻塞 `/api/chat` 和购物车接口。
-- 同步失败应记录日志并等待下一轮重试，不改变在线检索链路。
-- 如果同步期间用户请求命中旧 ChromaDB 内容，MySQL 过滤层负责剔除失效商品。
-- `last_sync_at` 必须持久化，避免服务重启后误判同步进度。
-- 初始建库和周期同步复用同一套索引写入逻辑，避免两套数据转换规则。
+## 阶段划分
 
-## 四、分阶段实施计划
+### 阶段 1：服务端块顺序协议与解析器改造
 
-### 阶段 1：MySQL 商品权威源
+目标：先完成块顺序协议，不做伪流式。服务端可以按“整体建议 -> 商品 -> 理由 -> 商品 -> 理由”输出块，但每个文本块可以一次性发送 `text`。
 
-目标：建立商品主数据层，让价格、库存、上下架状态有唯一可信来源。
+服务端任务：
 
-任务：
-
-1. 引入 MySQL 连接配置：
-  - `MYSQL_HOST`
-  - `MYSQL_PORT`
-  - `MYSQL_USER`
-  - `MYSQL_PASSWORD`
-  - `MYSQL_DATABASE`
-2. 新增商品数据访问模块，例如 `server/product_store.py`：
-  - 初始化连接池或会话工厂。
-  - 提供按 `product_id` 批量查询商品接口。
-  - 提供数据集 upsert 接口。
-  - 提供按 `updated_at` 查询增量变更接口。
-3. 新增 MySQL 表结构初始化脚本或启动时建表逻辑。
-4. Server 启动时扫描 `ecommerce_agent_dataset/`：
-  - 解析原始商品 JSON。
-  - 生成稳定 `product_id`。
-  - 生成 `embedding_text`。
-  - upsert 到 MySQL。
-5. 明确数据集字段映射：
-  - 原始价格映射到 `price`。
-  - 原始主图映射到 `image_url`。
-  - 读取数据集 `stock` 字段；缺失时设置默认库存 `2`。
-  - 缺失上下架状态时设置 `is_active = true`。
-6. 增加最小验证脚本或测试：
-  - 首次启动能写入商品。
-  - 重复启动不会产生重复数据。
-  - 修改数据集价格后再次启动能更新 MySQL。
-
-验收标准：
-
-- MySQL 中商品数量与数据集商品数量一致。
-- `product_id` 稳定且唯一。
-- 重复启动 server 后商品数量不增加。
-- 能通过 `product_id` 批量读取最新价格、库存和上下架状态。
-
-### 阶段 2：ChromaDB 初始构建改为基于 MySQL
-
-目标：让 ChromaDB 的初始内容来自 MySQL，而不是直接读取数据集形成另一套事实来源。
-
-任务：
-
-1. 调整 `server/ingest.py`：
-  - 从 MySQL 读取 `is_active = true` 的商品。
-  - 使用 MySQL 中的 `embedding_text` 生成 embedding。
-  - 将 `product_id` 写入 ChromaDB metadata。
-2. 确保 ChromaDB metadata 至少包含：
-  - `product_id`
-  - `category`
-  - `sub_category`
-  - `brand`
-3. 保留商品描述、卖点、评价摘要等检索需要的信息。
-4. 避免把 MySQL 之外的价格、库存副本作为在线展示依据。
-5. 为初始构建增加可重复执行能力：
-  - 可清空重建。
-  - 可 upsert 更新。
+- `POST /api/chat` 固定发送新版 `block` 事件和必要的 `status`、`cart`、`error`、`done`。
+- 删除旧 `product`、`compare`、`token` SSE 推荐事件和相关兼容分支。
+- 收紧 `SYSTEM_PROMPT`：
+  - 移动端推荐回复使用 `<R>/<INTRO>/<ITEM>/<REASON>/<OUTRO>` 标记协议。
+  - 推荐场景 `<R>` 外不允许有非空正文。
+  - 禁止 Markdown 标题、Markdown 表格、`**`、表格竖线和长编号列表。
+  - 商品价格、库存、规格等卡片字段不要在正文重复铺开。
+  - 加入 few-shot 示例，至少覆盖普通同类推荐、跨类目组合推荐、反问澄清和现有 `<C>` 对比输出。
+- 调整 `tools/retrieve_products.py::parse_intent` 的 prompt 使用方式：
+  - 将现有 `SYSTEM_PROMPT` 拆为 `TOOL_USE_PROMPT` 和 `FINAL_REPLY_PROMPT`。
+  - `agent.run_turn()` 使用 `TOOL_USE_PROMPT + "\n" + FINAL_REPLY_PROMPT`。
+  - `parse_intent` 使用精简 system prompt，避免推荐标记规则污染离线评估的强制工具调用行为。
+  - 在 `api_index.md` 登记 `TOOL_USE_PROMPT`、`FINAL_REPLY_PROMPT` 的职责。
+- 新增推荐标记解析器：
+  - 解析 `INTRO`、`ITEM id/group`、`REASON`、`OUTRO`。
+  - 校验 `id` 来自本轮候选。
+  - 校验多 request 场景下 `group` 来自 `requests[].label`；单 request 或无 label 时拒绝多余 group。
+  - 校验 `<ITEM>` 属性字符集，拒绝需要转义的属性值。
+  - 校验 reason 非空。
+  - 校验每个 `<ITEM>` 内必须且只能有一个 `<REASON>`。
+  - 校验 `<INTRO>`、`<ITEM>`、`<OUTRO>` 顺序和禁止嵌套规则。
+  - 校验 `<R>` 外无非空文本。
+  - 校验 `<R>` 与 `<C>` 不共存。
+- 改造现有可见文本校验：
+  - 从“整段 clean_text 不超过 120 字”改为按字段限制。
+  - 对 `INTRO`、每条 `REASON`、`OUTRO` 分别执行移动端文本校验。
+  - `_MOBILE_VISIBLE_REPLY_MAX_CHARS` 保留为非推荐纯文本回复的兜底限制。
+- 改造隐藏标记剥离与历史落库：
+  - 不再简单用 `_strip_hidden_event_marker_text()` 抠掉 `<R>` 后得到空正文。
+  - 解析推荐块后拼接可读 assistant 历史，包含商品标题、product_id 和 reason。
+- 新增服务端内部事件类型：
+  - `BlockTextEvent`
+  - `BlockProductEvent`
+  - `BlockCompareEvent`
+  - `StructuredStatusEvent`
+- `_events_from_parsed_response()` 按块顺序产出事件：
+  - intro text
+  - product A
+  - reason A text
+  - product B
+  - reason B text
+  - outro text
+- 精简状态阶段，只保留真实可解释的状态：
+  - `retrieving`：正在检索商品...
+  - `filtering`：正在筛选库存和价格...
+  - `composing`：正在整理推荐...
+  - `streaming`：正在输出推荐...
+- 状态不写入 conversation 历史。
+- 扩展后端测试：
+  - 标记协议正常解析。
+  - 普通同类推荐和跨类目组合推荐均能产出正确块顺序。
+  - 非法商品 ID、非法 group、非法属性字符、空 reason、标签嵌套、`<R>` 外非空文本、`<R>`/`<C>` 共存均触发可恢复错误。
+  - 历史落库包含商品标题、product_id 和 reason。
+  - `/api/chat` 只发送新版推荐块事件，不发送旧 `product`、`compare`、`token`。
+  - `parse_intent` 不受最终回复标记规则影响。
 
 验收标准：
 
-- 清空 ChromaDB 后可从 MySQL 完整重建向量索引。
-- ChromaDB 中每条记录都能通过 `product_id` 回查 MySQL 商品。
-- MySQL 下架商品不会进入新的 ChromaDB 初始索引。
+- 服务端能按顺序输出“整体建议 -> 商品卡片 A -> A 理由 -> 商品卡片 B -> B 理由”。
+- 推荐正文不再出现 `###`、Markdown 表格、大段编号说明。
+- 服务端不会发送旧推荐事件。
+- assistant 历史不会因 `<R>` 被剥离而变成空回复。
 
-### 阶段 3：检索后 MySQL 实时补全与过滤
+### 阶段 2：服务端商品详情 API 与文档同步
 
-目标：保证推荐给 LLM 和客户端的商品关键字段始终来自 MySQL 最新状态。
+目标：补齐 Task 中“商品卡片支持跳转落地页”的服务端数据闭环。该阶段与阶段 1 强依赖较少，可以并行实现。
 
-任务：
+服务端任务：
 
-1. 调整 `server/retriever.py` 返回流程：
-  - ChromaDB 召回候选时取 Top-N，N 应大于最终展示数量。
-  - 提取候选 `product_id`。
-  - 批量查询 MySQL 最新商品快照。
-2. 实现 MySQL 过滤规则：
-  - 过滤 `is_active = false`。
-  - 过滤 `stock <= 0`。
-  - 如果用户有预算，使用 MySQL 最新价格过滤。
-  - 如果用户有品牌、类目等结构化条件，优先使用 MySQL 字段做最终校验。
-3. 调整返回给 Agent 的商品结构：
-  - 标题、品牌、类目、价格、图片、库存状态均来自 MySQL。
-  - ChromaDB distance 和重排分数只作为排序信号。
-4. 调整 Agent prompt：
-  - 明确价格、库存、优惠只能引用工具返回字段。
-  - 禁止自行推断库存、折扣和不存在的商品属性。
-5. 调整 SSE `product` 事件：
-  - 发送 MySQL 商品快照。
-  - 最近展示商品池记录同一份快照。
-
-验收标准：
-
-- 修改 MySQL 中某商品价格后，无需重建 ChromaDB，下一次推荐展示即使用新价格。
-- 将 MySQL 中某商品 `stock` 改为 0 后，该商品不会出现在推荐卡片中。
-- 将 MySQL 中某商品 `is_active` 改为 false 后，即使 ChromaDB 仍召回它，也不会返回给 LLM 和客户端。
-- 预算类查询使用 MySQL 最新价格做最终判断。
-
-### 阶段 4：购物车关键字段二次校验
-
-目标：推荐展示后的商品在加购时仍能使用 MySQL 最新状态，避免展示快照过期。
-
-任务：
-
-1. 调整 `server/cart_store.py` 或购物车工具调用路径：
-  - 最近展示商品池只用于解析用户指代和确认商品身份。
-  - 加购前根据 `product_id` 查询 MySQL 最新商品。
-2. 加购校验：
-  - 商品不存在：失败。
-  - 商品下架：失败。
-  - 库存不足或库存为 0：失败。
-  - 价格变化：使用最新价格，并返回明确提示。
-3. 购物车快照价格来源：
-  - 购物车展示时重新读取 MySQL 最新价格。
-  - 若商品已下架或库存为0，需要在客户端购物车界面中体现。
-4. 自然语言购物车工具和 HTTP 购物车接口共用同一套校验逻辑。
-5. 更新客户端提示文案：
-  - 价格已更新。
-  - 商品已下架。
-  - 库存不足。
+- 扩展后端 `Product` 数据结构和 `block.product` payload，补充：
+  - `detail_url`
+  - `landing_url`
+  - `highlights`
+  - `stock_status`
+  - `unavailable_reason`
+  - `group_label`，来自 `<ITEM group="...">`
+- 统一商品可用性字段：
+  - `stock_status` 是枚举：`in_stock`、`low_stock`、`out_of_stock`、`inactive`。
+  - 客户端不再仅凭 `stock` 数字自行判断商品是否可购买。
+  - `unavailable_reason` 上移为通用 Product 字段，购物车 `CartItem` 复用同名字段，避免 `schemas.py` 与 Android model 里出现两套相似定义。
+- 新增 `ProductStore.get_product_detail(product_id)`：
+  - 从 MySQL 最新快照读取基础字段。
+  - 从 `raw_json`、`description` 或已有商品结构派生规格、卖点、评价摘要、FAQ。
+  - 不直接向客户端暴露完整 `raw_json`。
+- 新增 `GET /api/products/{product_id}`：
+  - 详情接口公共可读，不绑定 `conversation_id`。
+  - 商品不存在返回 `404`。
+  - 商品下架或无库存时仍可返回基础详情，但必须带 `stock_status` 和 `unavailable_reason`，客户端据此禁用加购。
+  - 加购仍走现有 `/api/cart*`，继续依赖近期展示商品池和 MySQL 最新状态校验。
+- 如果数据集没有真实外部商品页，`landing_url` 返回 `null`，`detail_url` 指向 App 内详情接口。
+- 更新 `api_index.md`：
+  - 补 `block` 事件结构。
+  - 补结构化 `status` 字段。
+  - 补 `GET /api/products/{product_id}`。
+  - 更新 `product` payload 字段说明。
+- 更新 `architecture.md`：
+  - 说明块式 SSE 数据流。
+  - 说明商品详情 API 不绑定会话，但购物车加购继续绑定近期展示池。
+  - 说明商品卡片、详情页、购物车之间的数据关系。
+- 更新端到端验证脚本：
+  - `eval/run_cart_e2e.py` 改为只验证块协议链路。
+- 增加后端测试：
+  - 商品详情接口返回完整字段。
+  - 不存在商品返回 `404`。
+  - 下架/无库存商品返回明确状态。
+  - `block.product` 包含详情跳转字段和 group label。
 
 验收标准：
 
-- 商品展示后修改 MySQL 价格，再点击加购，购物车使用最新价格。
-- 商品展示后将库存改为 0，再点击加购，接口返回失败。
-- 自然语言“把刚才那款加到购物车”和商品卡片按钮加购表现一致。
-- 购物车中不出现 MySQL 已下架或不存在的商品。
+- 每个商品卡片事件都包含可用于跳转的 `detail_url`。
+- Android 可通过 `product_id` 请求商品详情页数据。
+- 详情接口不要求 `conversation_id`，但加购仍不能绕过现有校验。
+- 文档与实际 API 保持一致。
 
-### 阶段 5：ChromaDB 后台增量同步
+### 阶段 3：服务端真 Streaming 与取消语义
 
-目标：让语义索引周期性追上 MySQL 最新商品内容，同时保持服务在线可用。
+目标：直接实现真 LLM streaming，不做伪流式。使用固定标记协议进行增量字段提取，降低隐藏结构解析复杂度。
 
-任务：
+服务端任务：
 
-1. 新增同步状态表，例如 `sync_state`：
-  - `name`
-  - `last_sync_at`
-  - `updated_at`
-2. 新增后台同步模块，例如 `server/chroma_sync.py`：
-  - 每 3 分钟触发一次。
-  - 查询 MySQL 中 `updated_at > last_sync_at` 的商品。
-  - 对新增、修改、重新上架商品 upsert ChromaDB。
-  - 对下架商品删除 ChromaDB 记录，或更新 inactive metadata。
-3. 在 FastAPI lifespan 中启动后台任务。
-4. 同步任务与在线请求隔离：
-  - 同步失败只记录日志。
-  - 不阻塞 `/api/chat`。
-  - 不阻塞购物车接口。
-5. 提供手动同步入口或本地命令：
-  - 便于 Demo 前强制同步。
-  - 便于测试索引更新效果。
-6. 记录同步日志：
-  - 本轮扫描商品数。
-  - upsert 数量。
-  - delete 或 inactive 数量。
-  - 同步耗时。
-  - 错误信息。
-
-验收标准：
-
-- 修改 MySQL 商品描述后，最多 3 分钟内 ChromaDB 索引更新。
-- 新增 MySQL 商品后，后台同步完成后可被语义检索召回。
-- 下架商品在 ChromaDB 未同步前也不会被最终展示；同步后不再被 ChromaDB 正常召回。
-- 同步过程中 `/api/chat` 仍可正常返回推荐结果。
-
-### 阶段 6：文档、测试与 Demo 验收
-
-目标：让数据一致性方案可解释、可演示、可验证。
-
-任务：
-
-1. 更新 `architecture.md`：
-  - 增加 MySQL 商品权威源。
-  - 更新推荐链路数据流。
-  - 说明 ChromaDB 最终一致性边界。
-  - 说明购物车二次校验。
-2. 更新 `api_index.md`：
-  - 如新增商品管理或同步接口，补充接口说明。
-  - 更新商品卡片字段来源说明。
-3. 必要时更新 `README.md`：
-  - MySQL 启动方式。
-  - 环境变量配置。
-  - 初始化和同步命令。
-4. 增加测试用例：
-  - MySQL upsert 幂等性。
-  - 检索后 MySQL 过滤。
-  - 价格变更实时生效。
-  - 库存为 0 不展示。
-  - 下架商品不展示。
-  - 后台同步失败不影响在线请求。
-5. 准备 Demo 脚本：
-  - 推荐某商品并展示价格。
-  - 直接修改 MySQL 价格。
-  - 再次推荐，展示新价格无需重建 ChromaDB。
-  - 将商品库存改为 0。
-  - 再次推荐或加购，验证商品被过滤或加购失败。
-  - 修改商品描述，等待或手动触发同步，验证语义召回更新。
+- 将最终回复调用改为 streaming completion。
+- 实现最小可用的流式标记提取器：
+  - 识别 `<R>`、`</R>`、`<INTRO>`、`</INTRO>`、`<ITEM id="..." group="...">`、`</ITEM>`、`<REASON>`、`</REASON>`、`<OUTRO>`、`</OUTRO>`。
+  - 进入 `INTRO`、`REASON`、`OUTRO` 后，按可见文本增量发送 `text_delta`。
+  - 识别 `<ITEM id="...">` 后，先校验 product_id，再发送对应 `product` block，随后再发送该 item 的 reason delta。
+  - 标签本身和隐藏结构不得泄漏给客户端。
+  - 对跨 chunk 的标签和属性做缓冲处理。
+  - 对 Unicode codepoint 安全切分；避免在 UTF-8 字节中间或 surrogate pair 中间切分。
+  - emoji 等复杂 grapheme cluster 尽量不拆；无法完全支持时至少保证不产生非法 Unicode。
+- 明确 `<C>` 对比场景的 streaming 路径：
+  - 对比场景仍可使用 streaming completion。
+  - 服务端识别到 `<C>` 后缓冲到 `</C>` 闭合，再 `json.loads` 解析并一次性发送完整 compare block。
+  - 对比场景可以牺牲首可见文本延迟，推荐链路不受影响。
+  - `<COMPARE>` 固定标签协议不纳入本轮，后续单独规划。
+- `text_delta` 节流策略：
+  - 每次发送 1-3 个中文字符或一个短词。
+  - 最小刷新间隔 16ms。
+  - 最大等待 80ms，避免长时间无输出。
+  - 服务端只做网络事件节流，客户端仍可做 UI 层合并。
+- 状态清空协作：
+  - 服务端在发送首个 `text_delta` 或首个 `product` block 时，客户端应清空 `streamingStatus`。
+  - `streaming` 状态只表示服务端已进入最终输出阶段，不应与可见推荐块长期并存。
+- SSE 断开与取消：
+  - `event_stream` 检测客户端断开，取消当前 `run_turn` 任务。
+  - 取消正在进行的 LLM streaming 请求。
+  - 记录 `logger.info("llm_call_cancelled", ...)`。
+  - 已发送的可见文本和商品 ID 作为 interrupted assistant 历史落库。
+- 异常恢复：
+  - streaming 中断时发送 `error` + `done`。
+  - 已发送的商品和文本不回滚。
+  - 结构错误仍走可恢复机制；恢复失败后发送清晰错误事件。
+- 补充后端测试：
+  - 标签不会出现在 SSE 可见事件中。
+  - 跨 chunk 标签可正确识别。
+  - `ITEM` 识别后 product block 先于 reason delta。
+  - `<C>` 对比场景缓冲到闭合后发送完整 compare block。
+  - Unicode 文本切分合法。
+  - 客户端断开后服务端取消 LLM 调用并落库 interrupted 历史。
+  - `error` + `done` 收尾稳定。
 
 验收标准：
 
-- 文档与实际实现一致。
-- Demo 能清楚说明：MySQL 强一致负责关键字段，ChromaDB 最终一致负责语义索引。
-- 能证明 AI 不会输出 MySQL 中已下架、无库存或过期价格的商品。
+- 用户发送消息后能快速看到首个状态。
+- 推荐文本通过真实 LLM streaming 以 delta 形式持续出现。
+- `<R>`、`<ITEM>`、`<REASON>` 等隐藏标签不会出现在客户端。
+- 客户端取消或断开后，服务端不继续空跑到 60s timeout。
 
-当前实施状态：
+### 阶段 4：Android 客户端块式消息流、商品详情与体验改造
 
-- Server 已完成购物车加购/改数量前的 MySQL 二次校验，HTTP 接口和自然语言购物车工具共用同一套校验逻辑。
-- Server 已完成购物车快照实时读取 MySQL 最新价格和状态，并通过 `messages` 返回价格变化、商品下架移除等提示。
-- Server 已新增 `sync_state` 表和 `server/chroma_sync.py`，支持手动执行一次增量同步和 FastAPI 后台每 3 分钟自动同步。
-- 文档已同步更新 `architecture.md`、`api_index.md`、`README.md`。
-- 已新增/更新 server 单元测试，覆盖价格变化加购、库存不足拒绝、自然语言工具共享校验、ChromaDB 增量同步和后台同步失败隔离。
+目标：客户端集中消费前三阶段服务端能力，实现文本与商品卡片交替、单卡居中、详情跳转、丰富等待态和移动端友好的对比展示。
 
-### 阶段 7：Android 客户端购物车状态展示
+客户端任务：
 
-目标：在 Windows / Android Studio 环境中消费阶段 4 server 已返回的购物车状态字段和提示消息。
+- 重构消息模型。当前 `Message` 是 `content + products + compareTables`，需要改为块式结构：
 
-任务：
+```kotlin
+data class Message(
+    val id: String,
+    val role: MessageRole,
+    val blocks: List<MessageBlock>,
+    val isStreaming: Boolean,
+    val isError: Boolean,
+    val interrupted: Boolean = false
+)
+```
 
-1. 更新客户端购物车模型：
-  - `CartItem` 增加 `stock: Int?`、`isActive: Boolean?`、`unavailableReason: String?`。
-  - `Cart` 增加 `messages: List<String>`。
-2. 更新 `ChatApiService.parseCart()`：
-  - 解析 `stock`、`is_active`、`unavailable_reason` 和 `messages`。
-  - 保持旧字段解析不变。
-3. 更新购物车 UI：
-  - 在购物车摘要或 bottom sheet 中展示 `messages`。
-  - 对 `unavailableReason != null` 的条目显示“库存不足”等状态。
-  - 对 server 返回的加购错误展示 `detail`，包括“价格已更新”“商品已下架”“库存不足”。
-4. 更新 ViewModel 状态：
-  - 直接 HTTP 加购成功后同步 `Cart.messages`。
-  - 加购失败时继续使用现有 `cartError` 展示后端错误。
-5. 增加 Android 侧最小验证：
-  - 价格变更后加购能看到最新价格和提示。
-  - 库存为 0 或下架时，加购失败提示来自后端。
+```kotlin
+sealed interface MessageBlock {
+    data class TextBlock(
+        val id: String,
+        val content: String
+    ) : MessageBlock
 
-当前实施状态：
+    data class ProductBlock(
+        val id: String,
+        val productId: String,
+        val card: ProductCardData
+    ) : MessageBlock
 
-- Android `CartItem` 已增加 `stock`、`isActive`、`unavailableReason`，`Cart` 已增加 `messages`。
-- `ChatApiService.parseCart()` 已解析 `stock`、`is_active`、`unavailable_reason` 和 `messages`，并保留旧字段解析能力。
-- 购物车摘要条和 bottom sheet 已展示后端 `messages`；不可用条目会展示库存不足、商品下架等状态。
-- 直接 HTTP 加购失败继续通过现有 `cartError` 展示后端 `detail`。
-- Android JVM 测试已覆盖新购物车状态字段解析和旧响应解析。
+    data class CompareBlock(
+        val id: String,
+        val table: CompareTable
+    ) : MessageBlock
+}
+```
 
-## 五、推荐实施顺序
+- 状态不要放入 `MessageBlock`，改为 `ChatUiState.streamingStatus`：
 
-建议按以下顺序推进：
+```kotlin
+data class StreamingStatus(
+    val phase: String,
+    val message: String,
+    val step: Int?,
+    val totalSteps: Int?
+)
+```
 
-1. MySQL 商品权威源。
-2. ChromaDB 初始构建改为基于 MySQL。
-3. 检索后 MySQL 实时补全与过滤。
-4. 购物车关键字段二次校验。
-5. ChromaDB 后台增量同步。
-6. 文档、测试与 Demo 验收。
-7. Android 客户端购物车状态展示。
+- 更新 `ChatEvent`：
+  - `BlockText`
+  - `BlockTextDelta`
+  - `BlockProduct`
+  - `BlockCompare`
+  - `StructuredStatus`
+- 更新 `ChatApiService`：
+  - 解析 `block` SSE。
+  - 解析结构化 `status`。
+  - 解析扩展后的商品字段：`detailUrl`、`landingUrl`、`highlights`、`stockStatus`、`unavailableReason`、`groupLabel`。
+- 更新 `ChatViewModel`：
+  - 收到 `text` 时插入完整 `TextBlock`。
+  - 收到 `text_delta` 时按 `block_id` 追加到对应 `TextBlock`。
+  - 收到 `product` 时按顺序插入 `ProductBlock`。
+  - 收到 `status` 时更新 `streamingStatus`，完成或失败后清空。
+  - 收到首个 `text_delta` 或首个 `product` block 时清空 `streamingStatus`，避免状态条与可见推荐内容长期并存。
+  - 对高频 delta 做 16-33ms UI 合并，避免 Compose 过度重组。
+  - 取消当前回复时取消 EventSource，将消息标记为 interrupted，并保留已输出内容；客户端取消依赖阶段 3 的服务端 SSE 断开检测，无需新增 cancel API。
+- 更新 `ChatScreen`：
+  - 按 `MessageBlock` 顺序渲染，不再先渲染大文本再渲染商品列表。
+  - 商品卡片独立居中纵向展示，不再默认使用横向 `LazyRow`。
+  - 推荐流展示顺序应为“整体建议 -> 商品卡片 A -> A 理由 -> 商品卡片 B -> B 理由”。
+- 重做商品卡片：
+  - 每张卡片 `fillMaxWidth(0.92f)`，并设置 `widthIn(max = 420.dp)`。
+  - 图片比例稳定，避免加载后跳动。
+  - 标题最多 2 行，价格和品牌位置固定。
+  - 主按钮为“查看详情”，次按钮为“加入购物车”。
+  - 点击卡片或“查看详情”进入详情页。
+  - 失败图片、无库存、下架状态要有明确视觉状态。
+- 分组展示策略：
+  - 连续 `ProductBlock` 的 `groupLabel` 相同时，不重复展示分组标题。
+  - `groupLabel` 变化时，在该商品卡片上方插入紧凑分组标签，例如“防晒护肤”“度假穿搭”。
+  - `groupLabel` 为空时不展示分组标签。
+- 新增商品详情页：
+  - 通过 `GET /api/products/{product_id}` 拉取详情。
+  - 展示图片、标题、价格、库存、规格、卖点、评价摘要、FAQ。
+  - 详情页支持加入购物车，并复用现有购物车错误提示。
+  - 如果后端返回 `landing_url`，提供“打开商品页”；否则停留在原生详情页。
+- 重做等待态：
+  - 检索阶段展示商品卡片骨架屏或紧凑状态条。
+  - 输出阶段展示光标或流式点状动画。
+  - 取消后停止动画并保留已输出内容。
+- 重做对比展示：
+  - 默认不再渲染横向宽表。
+  - 将 `CompareTable` 转为纵向维度卡片：
 
-这个顺序先建立唯一事实来源，再改造在线链路，最后补齐后台同步。即使第五阶段尚未完成，前三阶段完成后也已经能保证价格、库存、上下架状态在推荐结果中实时生效。
+```text
+价格
+蒙牛：85元/16盒
+伊利：72元/12盒
 
-## 六、验收注意事项
+适合人群
+蒙牛：家庭早餐、补钙
+伊利：有机品质、老人小孩
+```
 
-1. MySQL 是本阶段新增运行依赖。若本地未安装或未启动 MySQL，应先修复环境，而不是改成 SQLite、JSON 文件或内存存储替代。
-2. ChromaDB 与 MySQL 不追求强一致；验收重点是 MySQL 关键字段是否实时生效。
-3. 如果后台同步失败，在线推荐仍应可用，但新增或修改过的语义内容可能暂时无法通过 ChromaDB 召回。
-4. 涉及 Agent 自然语言推荐的验收需要访问 LLM。若网络或代理导致 LLM 不可用，应记录阻塞原因，并优先验证 MySQL、ChromaDB 和购物车接口层的确定性行为。
-5. 不允许为了通过演示让 LLM 直接编写价格、库存或优惠信息；所有关键字段必须来自后端工具返回的 MySQL 商品快照。
+  - 超过 3 个商品时，提示用户选择要对比的 2-3 个商品，避免手机端横向挤压。
+- 增加 Android 测试：
+  - `block` 事件解析。
+  - `text_delta` 合并。
+  - 商品扩展字段解析。
+  - 状态不进入消息块。
+  - 购物车错误提示不回归。
+
+验收标准：
+
+- Android 中展示顺序为“整体建议 -> 商品卡片 A -> A 理由 -> 商品卡片 B -> B 理由”。
+- 每个商品卡片居中独立展示，不再横排挤压。
+- 文本以逐字或短片段形式持续出现。
+- 点击商品卡片进入商品详情页。
+- 详情页能展示主图、价格、库存、卖点、评价摘要等信息。
+- 等待阶段有明确状态和骨架屏，但状态不会占用聊天消息流位置。
+- 对比内容在手机端无需横向滑动即可阅读。
+
+### 阶段 5：Android 购物车打开即同步最新快照
+
+目标：用户点开购物车详情页时，客户端立即调用后端 `GET /api/cart`，用 MySQL 最新快照刷新本地购物车，展示最新价格、库存不足、商品下架或商品不存在等变化；不再依赖用户先点击「+」「-」或「加入购物车」触发刷新。
+
+服务端前置能力：
+
+- `GET /api/cart` 已经通过 `cart_store.snapshot()` 重新读取 MySQL 最新商品状态。
+- 购物车快照会更新商品当前价格和总价。
+- 当商品价格相对上次购物车快照展示价变化时，`messages` 返回一次性价格变动提示。
+- 商品库存不足时保留购物车条目，并通过 `unavailable_reason` / `stock_status` 告知客户端禁用数量调整。
+- 商品不存在或已下架时从内存购物车移除，并在 `messages` 返回移除原因。
+
+客户端任务：
+
+- `ChatRoute` 将 `viewModel::refreshCart` 传给 `ChatScreen`，例如新增 `onRefreshCart: () -> Unit` 参数。
+- `ChatScreen` 点击顶部购物车图标时先调用 `onRefreshCart()`，再设置 `showCart = true`。
+- 底部 `CartSummaryBar` 点击时同样先调用 `onRefreshCart()`，再打开 `CartSheet`。
+- 打开 `CartSheet` 后复用现有 `isCartLoading` 显示加载态；刷新期间禁止重复清空、加减和删除操作。
+- `CartSheet` 继续展示 `cart.messages`，用于呈现价格更新、缺货、下架或商品不存在等后端提示。
+- `CartItemRow` 继续根据 `unavailableReason`、`stock`、`isActive` 禁用数量调整，并保留删除入口。
+- 刷新失败时保留当前本地 cart，同时通过现有 `cartError` 显示错误，不清空用户已看到的购物车内容。
+- 如后续引入真实页面导航，进入购物车详情页的导航入口也必须先触发 `refreshCart()` 或在页面 `LaunchedEffect` 中触发一次刷新。
+
+客户端测试：
+
+- 点击顶部购物车图标会调用 `refreshCart()` 并打开购物车。
+- 点击底部购物车摘要会调用 `refreshCart()` 并打开购物车。
+- 刷新期间 `CartSheet` 展示加载态并禁用加减、删除、清空。
+- `GET /api/cart` 返回的价格更新消息能展示在 `CartNoticeList`。
+- 刷新失败时显示 `cartError`，且不清空当前购物车条目。
+
+验收标准：
+
+- 在 MySQL 中修改购物车商品价格后，不执行任何加减或加购操作，直接打开购物车即可看到最新价格、总价和价格变动提示。
+- 在 MySQL 中把购物车商品库存改为 0 后，直接打开购物车即可看到缺货提示，数量调整按钮不可用。
+- 在 MySQL 中下架或删除购物车商品后，直接打开购物车即可看到后端移除提示。
+
+## 风险与已敲定决策
+
+- 已敲定：不做服务端伪流式。阶段 1 只做块顺序协议；阶段 3 直接做真 LLM streaming。
+- 已敲定：不使用 `<R>{JSON}</R>`，改用更易流式解析的固定标记协议。
+- 已敲定：不做新旧协议兼容，服务端和客户端只实现块式协议。
+- 已敲定：商品详情接口公共可读，不绑定 `conversation_id`；加购继续绑定近期展示商品池。
+- 已敲定：状态不作为聊天消息块落入对话流，而是客户端临时 UI 状态。
+- 已敲定：对比 `<C>` 在本轮真 streaming 中采用闭合后整体解析发送 compare block，不做增量对比流式解析。
+- 已敲定：客户端取消依赖 SSE 断开检测和服务端任务取消，不新增单独 cancel API。
+- 风险：固定标记协议仍可能被 LLM 写错，必须保留当前可恢复错误机制。
+- 风险：真 streaming 的增量标记解析要处理跨 chunk 标签、属性、Unicode 边界和中断落库，阶段 3 不应低估测试成本。
+- 风险：Android 块式消息模型会影响聊天、商品、对比、购物车多个 UI 区域；切换期间允许系统临时不可用，直到整轮计划完成。

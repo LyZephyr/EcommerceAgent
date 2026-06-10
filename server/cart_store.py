@@ -91,14 +91,13 @@ def add_item(conversation_id: str, product_id: str, quantity: int = 1) -> dict:
     if product_id in cart:
         cart[product_id]["quantity"] += quantity
     else:
-        cart[product_id] = {"product_id": product_id, "quantity": quantity}
+        cart[product_id] = {
+            "product_id": product_id,
+            "quantity": quantity,
+            "last_seen_price": recent_entry["displayed_price"],
+        }
 
-    cart_snapshot = snapshot(conversation_id)
-    if _price_changed(recent_entry, product_snapshot):
-        cart_snapshot["messages"].append(
-            f"「{product_snapshot['title']}」价格已更新为 ¥{product_snapshot['price']:.2f}。"
-        )
-    return cart_snapshot
+    return snapshot(conversation_id)
 
 
 def remove_item(conversation_id: str, product_id: str) -> dict:
@@ -146,16 +145,7 @@ def snapshot(conversation_id: str) -> dict:
 
 
 def _product_snapshot(product: dict) -> dict:
-    return {
-        "product_id": str(product["product_id"]),
-        "title": str(product["title"]),
-        "brand": product.get("brand"),
-        "category": str(product["category"]),
-        "sub_category": product.get("sub_category"),
-        "price": float(product["price"]),
-        "image_url": product.get("image_url"),
-        "stock": product.get("stock"),
-    }
+    return product_store.product_card_payload(product)
 
 
 def _recent_product_entry(product: dict) -> dict:
@@ -174,10 +164,7 @@ def _active_product_snapshot(product_id: str) -> dict:
         raise CartOperationError("商品已下架，无法加入购物车。", status_code=409)
     if int(product.get("stock") or 0) <= 0:
         raise CartOperationError("商品库存不足，无法加入购物车。", status_code=409)
-    return _product_snapshot(product) | {
-        "is_active": True,
-        "unavailable_reason": None,
-    }
+    return _product_snapshot(product) | {"is_active": True}
 
 
 def _ensure_stock(product: dict, quantity: int) -> None:
@@ -187,15 +174,6 @@ def _ensure_stock(product: dict, quantity: int) -> None:
             f"商品库存不足，当前库存 {stock} 件。",
             status_code=409,
         )
-
-
-def _price_changed(old_product: dict, latest_product: dict) -> bool:
-    return not isclose(
-        float(old_product.get("displayed_price") or 0),
-        float(latest_product["price"]),
-        rel_tol=0,
-        abs_tol=0.001,
-    )
 
 
 def _hydrate_cart_items(cart: dict[str, dict], messages: list[str]) -> list[dict]:
@@ -216,6 +194,7 @@ def _hydrate_cart_items(cart: dict[str, dict], messages: list[str]) -> list[dict
             continue
 
         quantity = int(cart[product_id]["quantity"])
+        _append_price_change_message(cart[product_id], product, messages)
         item = _product_snapshot(product) | {
             "quantity": quantity,
             "is_active": True,
@@ -232,3 +211,23 @@ def _unavailable_reason(product: dict, quantity: int) -> str | None:
     if quantity > stock:
         return f"库存不足，当前库存 {stock} 件"
     return None
+
+
+def _append_price_change_message(
+    cart_item: dict,
+    product: dict,
+    messages: list[str],
+) -> None:
+    latest_price = float(product["price"])
+    last_seen_price = cart_item.get("last_seen_price")
+    if last_seen_price is not None and not isclose(
+        float(last_seen_price),
+        latest_price,
+        rel_tol=0,
+        abs_tol=0.001,
+    ):
+        messages.append(
+            f"「{product['title']}」价格已更新：已从 ¥{float(last_seen_price):.2f} "
+            f"更新为 ¥{latest_price:.2f}。"
+        )
+    cart_item["last_seen_price"] = latest_price

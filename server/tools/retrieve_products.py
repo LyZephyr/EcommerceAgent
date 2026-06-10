@@ -13,6 +13,11 @@ from retriever import retrieve
 
 logger = logging.getLogger(__name__)
 
+PARSE_INTENT_SYSTEM_PROMPT = """\
+你只负责把用户购物需求转换成 retrieve_products 工具参数。
+普通明确需求只生成 1 个 request；场景化组合需求可拆成 2-4 个 request。
+不要生成最终回复、推荐标记或对比标记。"""
+
 TOOL_DEFINITION = {
     "type": "function",
     "function": {
@@ -101,14 +106,17 @@ def execute(arguments: dict) -> list[dict]:
 
 async def parse_intent(query: str) -> dict:
     """通过强制工具调用提取检索意图（供离线评估使用）。"""
-    from agent import SYSTEM_PROMPT
+    from agent import TOOL_USE_PROMPT
 
     client = AsyncOpenAI(api_key=ARK_API_KEY, base_url=ARK_BASE_URL)
     started_at = time.perf_counter()
     response = await client.chat.completions.create(
         model=ARK_MODEL,
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {
+                "role": "system",
+                "content": TOOL_USE_PROMPT + "\n" + PARSE_INTENT_SYSTEM_PROMPT,
+            },
             {"role": "user", "content": query},
         ],
         tools=[TOOL_DEFINITION],

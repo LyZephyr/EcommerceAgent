@@ -6,7 +6,7 @@
 
 ## 关键文件
 
-- `PLAN.md` — 当前实施计划和后续方向
+- `PLAN.md` — 当前系统状态
 - `architecture.md` — 系统架构、模块职责、数据流
 - `api_index.md` — API 接口与模块函数索引
 - `Task.md` — 原始需求文档（只读，不修改）

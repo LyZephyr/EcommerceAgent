@@ -7,9 +7,9 @@
 │ Android Client   │ ────────────────▶  │ FastAPI Server                       │
 │ Kotlin/Compose   │   POST /api/chat   │                                      │
 │                  │ ◀────────────────  │ ┌─────────────┐   ┌──────────────┐   │
-│ ChatViewModel    │ product/compare/   │ │    Agent     │──▶│ Doubao API   │   │
-│                  │ cart/token/done    │ │ (ReAct loop) │   └──────────────┘   │
-│ ChatApiService   │ /status/error      │ └──────┬──────┘                       │
+│ ChatViewModel    │ block/cart/done    │ │    Agent     │──▶│ Doubao API   │   │
+│                  │ /status/error      │ │ (ReAct loop) │   └──────────────┘   │
+│ ChatApiService   │                    │ └──────┬──────┘                       │
 │ ChatScreen       │                    │        │ tool_calls                   │
 └──────────────────┘                    │        ▼                             │
                                         │ ┌─────────────┐   ┌──────────────┐  │
@@ -48,11 +48,11 @@ ReAct loop: LLM 决策（最多 3 步工具调用）
     ├─ 无 tool_calls → 直接回复
     │   适用于：反问澄清 / 追问已展示商品 / 基于历史的对比 / 寒暄
     │   可解析 <C> 结构化对比标记
-    │   yield CompareEvent(可选) + TokenEvent(全文)
+    │   yield BlockCompareEvent(可选) + BlockTextEvent(全文)
     │
     ├─ 有 tool_calls → 调用购物车工具
     │   适用于：自然语言批量加购 / 查询近期商品 / 删除 / 改数量 / 查看 / 清空购物车
-    │   yield StatusEvent + CartEvent(成功时)
+    │   yield StructuredStatusEvent + CartEvent(成功时)
     │   工具结果返回 LLM，继续决策或生成最终回复
     │
     └─ 有 tool_calls → 调用 retrieve_products
@@ -61,9 +61,9 @@ ReAct loop: LLM 决策（最多 3 步工具调用）
     执行检索（每个 request 独立调用 retriever.retrieve）
         │
         ▼
-    工具结果返回 LLM，最终生成回复
+    工具结果返回 LLM，最终 streaming 生成回复
         解析 <R> 推荐标记和可选 <C> 对比标记
-        yield ProductEvent + CompareEvent(可选) + TokenEvent
+        yield BlockTextDeltaEvent + BlockProductEvent + BlockCompareEvent(可选)
 ```
 
 ## 模块职责
@@ -80,6 +80,8 @@ ReAct loop: LLM 决策（最多 3 步工具调用）
 - 将 `ecommerce_agent_dataset/` 商品 JSON 转换为商品记录，并按 `product_id` 幂等 upsert 到 MySQL
 - 商品表保存标题、品牌、类目、价格、库存、上下架状态、图片、完整描述、原始 JSON 和 embedding 文本
 - 提供 `get_products_by_ids`、`get_product_by_id`、`get_products_updated_after`、`list_active_products`、`count_products`、`get_sync_state`、`set_sync_state` 等接口，供检索补全、购物车校验和 ChromaDB 同步使用
+- 提供 `product_card_payload()` 和 `get_product_detail()`，统一输出商品卡片/详情页公开字段、`detail_url`、`landing_url`、`highlights`、`stock_status` 和 `unavailable_reason`
+- 商品详情从 MySQL 最新快照和 `raw_payload` 派生规格、FAQ 和评价摘要，但不向客户端暴露完整原始 JSON
 
 ### server/chroma_sync.py
 - ChromaDB 后台增量同步模块
@@ -102,7 +104,10 @@ ReAct loop: LLM 决策（最多 3 步工具调用）
 - 本轮使用 `retrieve_products` 后，最终回复必须包含合法 `<R>` 推荐标记，并基于标记中的商品 ID 发送商品卡片
 - 直接回复场景：反问澄清、追问已展示商品、寒暄等
 - 购物车工具场景：执行确定性状态操作，成功时产出 CartEvent；最终自然语言回复由 LLM 基于工具结果生成
-- 严格解析 `<R>` 推荐标记和 `<C>` 结构化对比标记，产出 TokenEvent / ProductEvent / CompareEvent / CartEvent / StatusEvent；两类标记不能同时出现，标记后必须保留用户可见文本
+- 严格解析 `<R>` 推荐固定标签和 `<C>` 结构化对比标记，产出 BlockTextEvent / BlockProductEvent / BlockCompareEvent / CartEvent / StructuredStatusEvent；两类标记不能同时出现
+- 检索或购物车工具完成后的最终回复使用 LLM streaming completion；推荐场景增量识别 `<INTRO>`、`<ITEM>`、`<REASON>`、`<OUTRO>`，只发送可见 `text_delta` 和商品块，隐藏标签不下发
+- `<C>` 对比场景在 streaming 中缓冲到 `</C>` 闭合后一次性解析并发送完整 compare block
+- streaming 期间记录首 chunk、首个可见输出、chunk 数、可见字符数和总耗时；客户端断开或 ASGI 取消时关闭当前 LLM stream，并将已发送可见内容以 `[interrupted]` 形式写入历史
 
 ### server/tools/\_\_init\_\_.py
 - 工具注册表：维护工具定义列表和执行器映射
@@ -131,8 +136,9 @@ ReAct loop: LLM 决策（最多 3 步工具调用）
 - 近期展示商品池：记录每个会话最近 20 个已通过 `product` SSE 发送的轻量记录，只包含 `product_id`、`displayed_price` 和 `displayed_at`
 - 近期展示商品池用于确认商品身份和价格变化提示，不作为商品标题、库存、当前价格等主数据来源
 - 加购和改数量前按 `product_id` 查询 MySQL 最新商品；商品不存在、下架、无库存或库存不足时失败
-- 商品价格变化时使用 MySQL 最新价格，并在购物车快照 `messages` 中返回提示
-- 购物车快照每次重新读取 MySQL 最新价格、库存和上下架状态；下架或不存在商品会从内存购物车移除并返回提示
+- 购物车条目保存 `last_seen_price`，用于在后续快照刷新时识别用户尚未看到的价格变化
+- 商品价格变化时使用 MySQL 最新价格，并在购物车快照 `messages` 中返回一次性提示
+- 购物车快照每次重新读取 MySQL 最新价格、库存和上下架状态；缺货商品保留并标记不可用，下架或不存在商品会从内存购物车移除并返回提示
 - 提供 `record_recent_product`、`get_recent_product_entry`、`list_recent_product_entries`、`list_recent_products`、`add_item`、`remove_item`、`update_item`、`clear_cart`、`snapshot`
 
 ### server/retriever.py
@@ -165,7 +171,8 @@ ReAct loop: LLM 决策（最多 3 步工具调用）
 
 ### server/schemas.py
 - 定义 `ChatRequest`：聊天请求体
-- 定义 `Product`：商品卡片数据
+- 定义 `Product`：商品卡片数据，包含详情跳转、外部落地页、卖点、库存状态和不可用原因
+- 定义 `ProductDetail`：商品详情响应，包含描述、规格、FAQ 和评价摘要
 
 ### server/main.py
 - FastAPI 应用入口
@@ -178,6 +185,8 @@ ReAct loop: LLM 决策（最多 3 步工具调用）
 - 提供 `POST /api/chat` SSE 端点：委托 `agent.run_turn()` 执行，将事件流转为 SSE；Agent 重试耗尽或异常时发送 `error` 事件并以 `done` 结束流
 - 在发送 `product` SSE 事件时写入近期展示商品池
 - 在收到 `CartEvent` 时发送 `cart` SSE 事件，同步最新购物车快照
+- 提供 `GET /api/products/{product_id}` 公共商品详情接口，不绑定会话；商品下架或无库存仍返回详情，并通过 `stock_status` / `unavailable_reason` 禁用加购
+- 商品详情接口只负责展示数据；加购仍走 `/api/cart*`，继续依赖当前会话近期展示商品池和 MySQL 最新状态校验
 - 提供购物车 HTTP 接口：`GET /api/cart`、`POST /api/cart/items`、`PATCH /api/cart/items/{product_id}`、`DELETE /api/cart/items/{product_id}`、`DELETE /api/cart`
 
 ### client-android/
@@ -185,7 +194,7 @@ ReAct loop: LLM 决策（最多 3 步工具调用）
 - `data/model/Message.kt`：定义聊天消息、消息角色和关联商品列表
 - `data/model/Product.kt`：定义与后端商品卡片对应的客户端商品模型
 - `data/api/ChatApiService.kt`：使用 OkHttp EventSource 连接 `POST /api/chat`，将 SSE 事件转换为 Kotlin `Flow<ChatEvent>`
-- `data/api/ChatEvent.kt`：定义客户端可消费的 `ProductFound`、`Token`、`Done`、`Error` 事件
+- `data/api/ChatEvent.kt`：定义客户端可消费的 `BlockText`、`BlockProduct`、`BlockCompare`、`Status`、`CartUpdated`、`Done`、`Error` 事件
 - `viewmodel/ChatViewModel.kt`：维护 `ChatUiState`、会话 ID、消息列表、流式响应任务和取消逻辑
 - `ui/chat/ChatScreen.kt`：实现 Compose 聊天主界面、输入栏、消息气泡、商品横向卡片、商品详情弹窗和图片渲染
 - `ui/theme/`：定义 Material3 主题色与动态色适配
@@ -243,31 +252,46 @@ FastAPI
     │    - 购物车操作：调用 cart 工具，更新/查看购物车或读取近期商品补充记忆
     │    - 需要检索：调用 retrieve_products，普通推荐使用 1 个 request，组合推荐使用多个 request
     │ 工具结果回填给 LLM 后生成最终回复
-    │    - 解析 <R> 标记，只发送 LLM 推荐的商品卡片
-    │    - 解析可选 <C> 标记，发送结构化对比事件
+    │    - 解析 <R> 固定标签，按顺序发送文本块和商品块
+    │    - 解析可选 <C> 标记，发送结构化对比块
     ▼
 SSE event: status (可选)
-    │ 工具调用时发送，客户端可展示"正在检索..."或"正在更新购物车..."
+    │ 工具调用时发送结构化状态，客户端作为临时 streamingStatus 展示
     ▼
 SSE event: cart (可选)
     │ 自然语言购物车工具成功执行后发送，携带当前 CartSnapshot
     ▼
-SSE event: product
-    │ 仅包含 LLM 明确推荐的商品；组合推荐也按扁平商品列表发送，不按子需求分组
-    │ FastAPI 同步记录到当前 conversation_id 的近期展示商品池
-    ▼
-SSE event: compare (可选)
-    │ 仅对比决策场景发送，携带结构化对比表数据
-    ▼
-SSE event: token
-    │ ChatApiService 解析为 Token
-    │ ChatViewModel 拼接到 assistant 消息 content
+SSE event: block
+    │ type=text/text_delta/product/compare
+    │ 商品块由 FastAPI 同步记录到当前 conversation_id 的近期展示商品池
+    │ 商品块携带 detail_url、landing_url、highlights、stock_status、unavailable_reason、group_label
+    │ ChatApiService 解析为 BlockText / BlockProduct / BlockCompare
     ▼
 SSE event: done
     │ ChatViewModel 结束流式状态
     ▼
 ChatScreen 渲染消息气泡、商品卡片、图片和详情弹窗
 ```
+
+## 商品详情数据流
+
+```text
+商品卡片 / 原生详情页
+    │
+    ▼
+GET /api/products/{product_id}
+    │ 不需要 conversation_id，公共读取商品展示数据
+    ▼
+ProductStore.get_product_detail()
+    │ 从 MySQL products 最新快照读取标题、价格、库存、上下架、图片
+    │ 从 raw_payload / description 派生规格、卖点、FAQ、评价摘要
+    ▼
+ProductDetail
+    │ stock_status / unavailable_reason 决定详情页是否禁用加购
+    │ landing_url 缺失时为 null，detail_url 指向服务端详情接口
+```
+
+详情读取不授予加购权限。用户从详情页加入购物车时仍必须调用 `/api/cart*`，后端继续使用当前 `conversation_id` 的近期展示商品池确认该商品曾在会话中展示过，并再次读取 MySQL 最新库存和上下架状态。
 
 ## 购物车 HTTP 数据流
 
@@ -312,8 +336,8 @@ CartStore
 CartEvent
     │ /api/chat 转为 SSE event: cart
     ▼
-TokenEvent
-    │ 返回自然语言操作结果或反问
+BlockTextEvent
+    │ 返回自然语言操作结果、反问或推荐理由
 ```
 
 ## 部署方式
@@ -367,6 +391,11 @@ state when the backend marks an item unavailable. Product cards and the product
 detail dialog call `POST /api/cart/items` through `ChatViewModel.addToCart`; the
 backend still resolves trusted title, price, and image data from the current
 conversation's recently displayed product pool.
+
+Opening the cart should call `ChatViewModel.refreshCart()` before showing the
+cart sheet or cart detail view. That direct `GET /api/cart` refresh is the
+client entry point for MySQL-authoritative price, stock, and availability
+changes that happened after the last cart mutation or SSE cart event.
 
 End-to-end cart validation lives in `eval/run_cart_e2e.py`. It exercises empty
 cart reads, invalid add rejection, product recommendation, HTTP add, quantity
