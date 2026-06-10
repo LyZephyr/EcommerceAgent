@@ -24,6 +24,9 @@ SYSTEM_PROMPT = """\
 
 ## 工具使用规则
 - 当用户有新的商品推荐、搜索或筛选需求时，调用 retrieve_products 工具检索商品库
+- 当用户明确要求加购、删除、改数量、查看或清空购物车时，调用对应购物车工具
+- 购物车加购中的“第一个”“第二个”“刚才那款”优先指向最近展示的商品；删除和改数量中的“第一个”“第二个”优先指向购物车明细
+- 购物车指代不明确时必须先反问，不要猜测用户想操作哪款商品
 - 当用户追问之前已推荐商品的细节或对比时，基于对话历史直接回答，不需要重新检索
 - 当用户需求过于模糊、缺少关键偏好时，先反问用户以明确需求方向，不要直接检索
 - 当用户描述一个需要多类商品的场景化组合需求时，将场景拆成多个检索子需求，并在一次 retrieve_products 工具调用中填写多个 requests
@@ -31,6 +34,7 @@ SYSTEM_PROMPT = """\
 
 ## 回复规则
 - 只基于商品资料回答，不编造不存在的商品、价格、功效、优惠或库存
+- 不编造购物车中不存在的商品、价格、优惠、库存或配送承诺
 - 推荐时说明理由、适合人群和需要注意的评价反馈
 - 对比多个商品时，按价格、核心卖点、适合人群、评价反馈和注意事项等维度整合，不直接堆叠原始资料
 - 回答自然简洁"""
@@ -75,10 +79,15 @@ class CompareEvent:
     payload: dict
 
 
+@dataclass
+class CartEvent:
+    payload: dict
+
+
 async def run_turn(
     conversation_id: str,
     user_message: str,
-) -> AsyncIterator[TokenEvent | ProductEvent | StatusEvent | CompareEvent]:
+) -> AsyncIterator[TokenEvent | ProductEvent | StatusEvent | CompareEvent | CartEvent]:
     """执行一轮对话，yield TokenEvent / ProductEvent / StatusEvent。"""
     if not ARK_API_KEY:
         raise RuntimeError(
@@ -114,11 +123,7 @@ async def run_turn(
     # Phase 2: 执行工具 → 流式生成推荐回复
     tool_call = assistant_msg.tool_calls[0]
     arguments = json.loads(tool_call.function.arguments)
-
-    yield StatusEvent("正在检索商品...")
-    candidate_groups = execute_tool(tool_call.function.name, arguments)
-    candidates = _flatten_candidate_groups(candidate_groups)
-    candidates_by_id = {p["product_id"]: p for p in candidates}
+    tool_name = tool_call.function.name
 
     tool_call_msg = {
         "role": "assistant",
@@ -127,12 +132,37 @@ async def run_turn(
                 "id": tool_call.id,
                 "type": "function",
                 "function": {
-                    "name": tool_call.function.name,
+                    "name": tool_name,
                     "arguments": tool_call.function.arguments,
                 },
             }
         ],
     }
+
+    if _is_cart_tool(tool_name):
+        yield StatusEvent("正在更新购物车...")
+        result = execute_tool(tool_name, arguments, conversation_id)
+        conversation.append(conversation_id, tool_call_msg)
+        conversation.append(
+            conversation_id,
+            {
+                "role": "tool",
+                "tool_call_id": tool_call.id,
+                "content": json.dumps(result, ensure_ascii=False),
+            },
+        )
+        message = result["message"]
+        conversation.append(conversation_id, {"role": "assistant", "content": message})
+        if result.get("success") and result.get("cart"):
+            yield CartEvent(result["cart"])
+        yield TokenEvent(message)
+        return
+
+    yield StatusEvent("正在检索商品...")
+    candidate_groups = execute_tool(tool_name, arguments)
+    candidates = _flatten_candidate_groups(candidate_groups)
+    candidates_by_id = {p["product_id"]: p for p in candidates}
+
     full_tool_result = {
         "role": "tool",
         "tool_call_id": tool_call.id,
@@ -231,6 +261,16 @@ def _flatten_candidate_groups(candidate_groups: list[dict]) -> list[dict]:
             seen_ids.add(product_id)
             candidates.append(product)
     return candidates
+
+
+def _is_cart_tool(tool_name: str) -> bool:
+    return tool_name in {
+        "add_to_cart",
+        "remove_from_cart",
+        "update_cart_item",
+        "view_cart",
+        "clear_cart",
+    }
 
 
 def _format_candidate_groups(candidate_groups: list[dict]) -> str:

@@ -31,11 +31,129 @@
 
 | event | data 结构 | 说明 |
 |-------|-----------|------|
-| `status` | `{"message": "正在检索商品..."}` | Agent 正在执行工具调用，仅工具调用时发送 |
+| `status` | `{"message": "正在检索商品..."}` 或 `{"message": "正在更新购物车..."}` | Agent 正在执行工具调用，仅工具调用时发送 |
 | `product` | `{"product_id": "...", "title": "...", "brand": "...", "category": "...", "sub_category": "...", "price": 99.0, "image_url": "..."}` | LLM 明确推荐的商品卡片 |
 | `compare` | `{"products": [{"product_id": "...", "title": "..."}], "rows": [{"dimension": "价格", "values": {"product_id": "..."}}]}` | 多商品对比表数据，仅对比决策场景发送 |
+| `cart` | `{"conversation_id": "...", "items": [...], "total_quantity": 2, "total_price": 198.0}` | 自然语言购物车工具成功执行后同步当前购物车快照 |
 | `token` | `{"content": "这款"}` | LLM 生成的文本片段 |
 | `done` | `{}` | 流结束标记 |
+
+---
+
+### GET /api/cart
+
+查看当前会话购物车。
+
+**Query 参数**：
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `conversation_id` | `string?` | 会话 ID；缺省时创建新空会话 |
+
+**响应**：
+
+```json
+{
+  "conversation_id": "...",
+  "items": [
+    {
+      "product_id": "...",
+      "title": "...",
+      "brand": "...",
+      "category": "...",
+      "sub_category": "...",
+      "price": 99.0,
+      "image_url": "...",
+      "quantity": 2
+    }
+  ],
+  "total_quantity": 2,
+  "total_price": 198.0
+}
+```
+
+---
+
+### POST /api/cart/items
+
+把最近展示过的商品加入购物车。接口只接受 `product_id` 和 `quantity`，商品标题、价格和图片由后端最近展示商品池解析。
+
+**请求体**：
+
+```json
+{
+  "conversation_id": "...",
+  "product_id": "...",
+  "quantity": 1
+}
+```
+
+**响应**：同 `GET /api/cart`。
+
+**错误**：
+
+| HTTP 状态码 | 场景 |
+|-------------|------|
+| `404` | 商品不在当前会话最近展示商品池中 |
+| `422` | `quantity < 1` 或请求体格式错误 |
+
+---
+
+### PATCH /api/cart/items/{product_id}
+
+修改购物车中某个商品的数量。
+
+**请求体**：
+
+```json
+{
+  "conversation_id": "...",
+  "quantity": 2
+}
+```
+
+**响应**：同 `GET /api/cart`。
+
+**错误**：
+
+| HTTP 状态码 | 场景 |
+|-------------|------|
+| `404` | 购物车中不存在该商品 |
+| `422` | `quantity < 1` 或请求体格式错误 |
+
+---
+
+### DELETE /api/cart/items/{product_id}
+
+从购物车删除某个商品。
+
+**Query 参数**：
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `conversation_id` | `string?` | 会话 ID；缺省时创建新空会话 |
+
+**响应**：同 `GET /api/cart`。
+
+**错误**：
+
+| HTTP 状态码 | 场景 |
+|-------------|------|
+| `404` | 购物车中不存在该商品 |
+
+---
+
+### DELETE /api/cart
+
+清空当前会话购物车。
+
+**Query 参数**：
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `conversation_id` | `string?` | 会话 ID；缺省时创建新空会话 |
+
+**响应**：同 `GET /api/cart`。
 
 ---
 
@@ -49,13 +167,31 @@
 | `ProductEvent` | `@dataclass: product_id: str, product_data: dict` | 商品推荐事件 |
 | `StatusEvent` | `@dataclass: status: str` | 状态提示事件 |
 | `CompareEvent` | `@dataclass: payload: dict` | 结构化对比事件 |
-| `run_turn` | `async (conversation_id: str, user_message: str) -> AsyncIterator[TokenEvent \| ProductEvent \| StatusEvent \| CompareEvent]` | 执行一轮对话：Phase 1 决策 + Phase 2 工具调用/生成 |
+| `CartEvent` | `@dataclass: payload: dict` | 购物车快照同步事件 |
+| `run_turn` | `async (conversation_id: str, user_message: str) -> AsyncIterator[TokenEvent \| ProductEvent \| StatusEvent \| CompareEvent \| CartEvent]` | 执行一轮对话：Phase 1 决策 + 检索生成或购物车工具操作 |
 
 ### tools/\_\_init\_\_.py
 
 | 函数 | 签名 | 说明 |
 |------|------|------|
-| `execute` | `(name: str, arguments: dict) -> list[dict]` | 按工具名分发执行 |
+| `execute` | `(name: str, arguments: dict, conversation_id: str \| None = None)` | 按工具名分发执行；购物车工具必须传入 `conversation_id` |
+
+### tools/cart.py
+
+| 函数/常量 | 签名 | 说明 |
+|-----------|------|------|
+| `TOOL_DEFINITIONS` | `list[dict]` | OpenAI Function Calling 格式的购物车工具定义 |
+| `execute` | `(name: str, arguments: dict, conversation_id: str) -> dict` | 执行购物车工具，返回 `success`、`message` 和可选 `cart` 快照 |
+
+购物车工具列表：
+
+| 工具名 | 关键参数 | 说明 |
+|--------|----------|------|
+| `add_to_cart` | `product_id?`, `recent_position?`, `title_keyword?`, `quantity?` | 从最近展示商品池解析商品并加购 |
+| `remove_from_cart` | `product_id?`, `cart_position?`, `title_keyword?` | 从购物车删除商品 |
+| `update_cart_item` | `product_id?`, `cart_position?`, `title_keyword?`, `quantity` | 修改购物车商品数量 |
+| `view_cart` | 无 | 查看当前购物车 |
+| `clear_cart` | 无 | 清空当前购物车 |
 
 ### tools/retrieve_products.py
 
@@ -100,6 +236,20 @@
 | `get_history` | `(conversation_id: str) -> list[dict]` | 返回对话历史（浅拷贝） |
 | `append` | `(conversation_id: str, message: dict) -> None` | 追加消息并执行滑动窗口裁剪 |
 
+### cart_store.py
+
+| 函数 | 签名 | 说明 |
+|------|------|------|
+| `record_recent_product` | `(conversation_id: str, product: dict) -> None` | 记录当前会话已通过商品卡片展示的后端商品快照 |
+| `get_recent_product` | `(conversation_id: str, product_id: str) -> dict \| None` | 按商品 ID 从最近展示商品池取可信商品快照 |
+| `get_recent_product_by_position` | `(conversation_id: str, position: int) -> dict \| None` | 按 1-based 展示顺序取最近展示商品，供后续指代解析使用 |
+| `list_recent_products` | `(conversation_id: str) -> list[dict]` | 返回当前会话最近展示商品快照列表 |
+| `add_item` | `(conversation_id: str, product: dict, quantity: int = 1) -> dict` | 加购商品；已有商品累加数量；返回购物车快照 |
+| `remove_item` | `(conversation_id: str, product_id: str) -> dict` | 删除购物车商品；不存在时抛出 `KeyError` |
+| `update_item` | `(conversation_id: str, product_id: str, quantity: int) -> dict` | 设置购物车商品数量；不存在时抛出 `KeyError` |
+| `clear_cart` | `(conversation_id: str) -> dict` | 清空当前会话购物车并返回快照 |
+| `snapshot` | `(conversation_id: str) -> dict` | 返回 `items`、`total_quantity`、`total_price` 购物车快照 |
+
 ### retriever.py
 
 | 函数 | 签名 | 说明 |
@@ -127,6 +277,10 @@
 |----|------|------|
 | `ChatRequest` | `message: str`, `conversation_id: str \| None` | 聊天请求 |
 | `Product` | `product_id`, `title`, `brand`, `category`, `sub_category`, `price`, `image_url` | 商品卡片数据 |
+| `CartItem` | `Product` 字段 + `quantity: int` | 购物车商品明细 |
+| `CartSnapshot` | `conversation_id`, `items`, `total_quantity`, `total_price` | 购物车快照响应 |
+| `AddCartItemRequest` | `conversation_id: str \| None`, `product_id: str`, `quantity: int = 1` | 加购请求 |
+| `UpdateCartItemRequest` | `conversation_id: str \| None`, `quantity: int` | 修改数量请求 |
 
 ---
 

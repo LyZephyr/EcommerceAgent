@@ -16,3 +16,25 @@ class Product(BaseModel):
     brand: str | None = None
     sub_category: str | None = None
     image_url: str | None = None
+
+
+class CartItem(Product):
+    quantity: int = Field(ge=1)
+
+
+class CartSnapshot(BaseModel):
+    conversation_id: str
+    items: list[CartItem]
+    total_quantity: int
+    total_price: float
+
+
+class AddCartItemRequest(BaseModel):
+    conversation_id: str | None = None
+    product_id: str
+    quantity: int = Field(default=1, ge=1)
+
+
+class UpdateCartItemRequest(BaseModel):
+    conversation_id: str | None = None
+    quantity: int = Field(ge=1)

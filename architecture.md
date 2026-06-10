@@ -8,7 +8,7 @@
 │ Kotlin/Compose   │   POST /api/chat   │                                      │
 │                  │ ◀────────────────  │ ┌─────────────┐   ┌──────────────┐   │
 │ ChatViewModel    │ product/compare/   │ │    Agent     │──▶│ Doubao API   │   │
-│                  │ token/done         │ │ (单跳工具调用)│   └──────────────┘   │
+│                  │ cart/token/done    │ │ (单跳工具调用)│   └──────────────┘   │
 │ ChatApiService   │ /status            │ └──────┬──────┘                       │
 │ ChatScreen       │                    │        │ tool_calls                   │
 └──────────────────┘                    │        ▼                             │
@@ -19,6 +19,9 @@
                                         │ ┌─────────────┐   ┌──────────────┐  │
                                         │ │Conversation  │   │  ChromaDB    │  │
                                         │ └─────────────┘   └──────────────┘  │
+                                        │ ┌─────────────┐                      │
+                                        │ │ CartStore   │◀─ /api/cart*         │
+                                        │ └─────────────┘                      │
                                         └──────────────────────────────────────┘
 ```
 
@@ -34,6 +37,10 @@ Phase 1: LLM 决策（非流式）
     │   适用于：反问澄清 / 追问已展示商品 / 基于历史的对比 / 寒暄
     │   可解析 <C> 结构化对比标记
     │   yield CompareEvent(可选) + TokenEvent(全文)
+    │
+    ├─ 有 tool_calls → 调用购物车工具
+    │   适用于：自然语言加购 / 删除 / 改数量 / 查看 / 清空购物车
+    │   yield StatusEvent + CartEvent(成功时) + TokenEvent
     │
     └─ 有 tool_calls → 调用 retrieve_products
         │
@@ -57,11 +64,18 @@ Phase 1: LLM 决策（非流式）
 - Phase 1：LLM 接收对话历史 + 工具定义，决定调用工具还是直接回复
 - Phase 2（仅工具调用时）：将工具返回的多组商品资料注入上下文，LLM 流式生成推荐回复
 - 直接回复场景：反问澄清、追问已展示商品、寒暄等
-- 解析 `<R>` 推荐标记和可选 `<C>` 结构化对比标记，产出 TokenEvent / ProductEvent / CompareEvent / StatusEvent
+- 购物车工具场景：执行确定性状态操作，产出 CartEvent 并返回简短操作结果
+- 解析 `<R>` 推荐标记和可选 `<C>` 结构化对比标记，产出 TokenEvent / ProductEvent / CompareEvent / CartEvent / StatusEvent
 
 ### server/tools/\_\_init\_\_.py
 - 工具注册表：维护工具定义列表和执行器映射
 - 提供统一的 `execute(name, arguments)` 分发接口
+
+### server/tools/cart.py
+- 定义 `add_to_cart`、`remove_from_cart`、`update_cart_item`、`view_cart`、`clear_cart` 工具 schema
+- 将 `product_id`、`recent_position`、`cart_position`、`title_keyword` 等工具参数解析为后端可信商品或购物车条目
+- 加购只从最近展示商品池取商品快照；删除和改数量只操作当前购物车快照
+- 指代缺失、位置不存在或关键词匹配多项时返回失败消息，不猜测商品
 
 ### server/tools/retrieve_products.py
 - 定义 `retrieve_products` 工具的 OpenAI Function Calling schema
@@ -72,6 +86,12 @@ Phase 1: LLM 决策（非流式）
 - 内存会话存储：`conversation_id -> list[message]`
 - 滑动窗口：保留最近 10 轮对话
 - 提供 `get_or_create_id`、`get_history`、`append` 接口
+
+### server/cart_store.py
+- 内存购物车存储：`conversation_id -> product_id -> cart item`
+- 最近展示商品池：记录每个会话最近 20 个已通过 `product` SSE 发送的商品卡片快照
+- 购物车加购只接受最近展示商品池中的后端可信商品快照，不从客户端接收标题、价格或图片
+- 提供 `record_recent_product`、`get_recent_product`、`get_recent_product_by_position`、`list_recent_products`、`add_item`、`remove_item`、`update_item`、`clear_cart`、`snapshot`
 
 ### server/retriever.py
 - 模块级初始化 ChromaDB PersistentClient，复用连接
@@ -102,6 +122,9 @@ Phase 1: LLM 决策（非流式）
 - 挂载 `/assets` 静态资源路径，用于返回商品图片
 - 提供 `GET /health`
 - 提供 `POST /api/chat` SSE 端点：委托 `agent.run_turn()` 执行，将事件流转为 SSE
+- 在发送 `product` SSE 事件时写入最近展示商品池
+- 在收到 `CartEvent` 时发送 `cart` SSE 事件，同步最新购物车快照
+- 提供购物车 HTTP 接口：`GET /api/cart`、`POST /api/cart/items`、`PATCH /api/cart/items/{product_id}`、`DELETE /api/cart/items/{product_id}`、`DELETE /api/cart`
 
 ### client-android/
 - `MainActivity`：应用入口，启用 edge-to-edge 后挂载 `ChatRoute`
@@ -135,6 +158,7 @@ ChatApiService
 FastAPI
     │ 1. Agent Phase 1：LLM 接收历史+工具定义，决策是否调用工具
     │    - 无需检索：直接生成回复（反问/追问/寒暄）
+    │    - 购物车操作：调用 cart 工具，更新/查看当前会话购物车
     │    - 需要检索：调用 retrieve_products 工具，普通推荐使用 1 个 request，组合推荐使用多个 request
     │ 2. Agent Phase 2（仅工具调用时）：
     │    - 多组检索结果注入上下文，LLM 流式生成推荐回复
@@ -142,10 +166,14 @@ FastAPI
     │    - 解析可选 <C> 标记，发送结构化对比事件
     ▼
 SSE event: status (可选)
-    │ 仅工具调用时发送，客户端可展示"正在检索..."
+    │ 工具调用时发送，客户端可展示"正在检索..."或"正在更新购物车..."
+    ▼
+SSE event: cart (可选)
+    │ 自然语言购物车工具成功执行后发送，携带当前 CartSnapshot
     ▼
 SSE event: product
     │ 仅包含 LLM 明确推荐的商品；组合推荐也按扁平商品列表发送，不按子需求分组
+    │ FastAPI 同步记录到当前 conversation_id 的最近展示商品池
     ▼
 SSE event: compare (可选)
     │ 仅对比决策场景发送，携带结构化对比表数据
@@ -158,6 +186,49 @@ SSE event: done
     │ ChatViewModel 结束流式状态
     ▼
 ChatScreen 渲染消息气泡、商品卡片、图片和详情弹窗
+```
+
+## 购物车 HTTP 数据流
+
+```text
+商品卡片按钮 / 购物车弹窗
+    │
+    ▼
+FastAPI /api/cart*
+    │ 使用 conversation_id 定位会话
+    │ POST /api/cart/items 只接收 product_id + quantity
+    ▼
+CartStore
+    │ 从最近展示商品池取回后端可信商品快照
+    │ 更新当前会话内存购物车
+    ▼
+CartSnapshot
+    │ items + total_quantity + total_price
+    ▼
+客户端刷新购物车摘要和明细
+```
+
+## 自然语言购物车数据流
+
+```text
+用户输入“第二个加两件”“删掉购物车里的耳机”
+    │
+    ▼
+Agent Phase 1
+    │ 选择 add_to_cart / remove_from_cart / update_cart_item / view_cart / clear_cart
+    ▼
+server/tools/cart.py
+    │ 使用 conversation_id 读取最近展示商品池或购物车快照
+    │ 解析 recent_position / cart_position / title_keyword
+    ▼
+CartStore
+    │ 执行确定性 add / remove / update / snapshot / clear
+    ▼
+CartEvent
+    │ /api/chat 转为 SSE event: cart
+    ▼
+TokenEvent
+    │ 返回自然语言操作结果或反问
 ```
 
 ## 技术栈
