@@ -5,6 +5,7 @@
   "category": "服饰运动",
   "sub_category": "瑜伽裤",
   "base_price": 880.0,
+  "stock": 2,
   "image_path": "3_服饰运动/images/p_clothes_016_live.jpg",
   "skus": [
     {

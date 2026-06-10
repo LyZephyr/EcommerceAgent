@@ -1,6 +1,7 @@
 """FastAPI 入口，提供 SSE 流式聊天接口。"""
 
 import json
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
 
 import cart_store
+import product_store
 from agent import (
     CartEvent,
     CompareEvent,
@@ -26,7 +28,14 @@ from schemas import (
     UpdateCartItemRequest,
 )
 
-app = FastAPI(title="EcommerceAgent API")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    product_store.load_dataset_to_mysql()
+    yield
+
+
+app = FastAPI(title="EcommerceAgent API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

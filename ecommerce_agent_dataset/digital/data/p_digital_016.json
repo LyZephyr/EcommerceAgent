@@ -5,6 +5,7 @@
   "category": "数码电子",
   "sub_category": "智能手机",
   "base_price": 3299.0,
+  "stock": 2,
   "image_path": "2_数码电子/images/p_digital_016_live.jpg",
   "skus": [
     {

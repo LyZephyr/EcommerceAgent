@@ -8,10 +8,11 @@
 ├── server/                     # Python 后端
 │   ├── main.py                 # FastAPI 入口
 │   ├── config.py               # 配置管理
+│   ├── product_store.py        # MySQL 商品权威源
 │   ├── ingest.py               # 数据导入 & 向量化
 │   ├── retriever.py            # RAG 检索模块
-│   ├── intent.py               # LLM 意图解析
-│   ├── generator.py            # LLM 对话生成
+│   ├── agent.py                # Agent 编排
+│   ├── cart_store.py           # 内存购物车
 │   ├── schemas.py              # 数据模型
 │   └── requirements.txt        # Python 依赖
 ├── eval/                       # 离线检索评估
@@ -30,6 +31,7 @@
 ### 环境要求
 
 - Python 3.10+
+- MySQL 8.x
 - Android Studio (Ladybug+)
 - JDK 11+
 
@@ -46,12 +48,21 @@ pip install -r requirements.txt
 
 # 3. 配置环境变量
 cp ../.env.example ../.env
-# 编辑 .env 填入 ARK_API_KEY
+# 编辑 .env 填入 ARK_API_KEY 和 MySQL 连接信息：
+# MYSQL_HOST=127.0.0.1
+# MYSQL_PORT=3306
+# MYSQL_USER=root
+# MYSQL_PASSWORD=your-password
+# MYSQL_DATABASE=ecommerce_agent
 
-# 4. 导入商品数据
+# 4. 初始化 MySQL 商品权威源
+python product_store.py
+
+# 5. 导入商品向量数据
 python ingest.py
 
-# 5. 启动服务
+# 6. 启动服务
+# 启动时也会自动把 ecommerce_agent_dataset/ 幂等加载到 MySQL
 uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
@@ -93,6 +104,7 @@ HF_HUB_OFFLINE=1 server/.venv/bin/python eval/run_retrieval_eval.py
 | 组件 | 技术选型 |
 |------|----------|
 | 后端框架 | FastAPI |
+| 商品权威源 | MySQL + SQLAlchemy Core + PyMySQL |
 | 向量数据库 | ChromaDB |
 | Embedding | BAAI/bge-base-zh-v1.5 |
 | LLM | Doubao-Seed-2.0-lite |

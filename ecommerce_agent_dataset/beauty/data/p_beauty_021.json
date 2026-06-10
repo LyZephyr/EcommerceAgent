@@ -5,6 +5,7 @@
   "category": "美妆护肤",
   "sub_category": "眼霜",
   "base_price": 320.0,
+  "stock": 2,
   "image_path": "1_美妆护肤/images/p_beauty_021_live.jpg",
   "skus": [
     {

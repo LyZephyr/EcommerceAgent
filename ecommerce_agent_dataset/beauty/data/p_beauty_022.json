@@ -5,6 +5,7 @@
   "category": "美妆护肤",
   "sub_category": "面膜",
   "base_price": 199.0,
+  "stock": 2,
   "image_path": "1_美妆护肤/images/p_beauty_022_live.jpg",
   "skus": [
     {

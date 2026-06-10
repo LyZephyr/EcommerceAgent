@@ -31,13 +31,14 @@ def load_products(dataset_dir: str) -> list[dict]:
 def build_embedding_text(product: dict) -> str:
     """为商品构建用于向量化的紧凑文本，控制在 512 token 以内。
 
-    包含：标题 + 品牌 + 类目 + 价格 + 卖点 + FAQ 问题摘要 + 评价摘要。
+    包含：标题 + 品牌 + 类目 + SKU 属性摘要 + 卖点 + FAQ 问题摘要 + 评价摘要。
     """
     knowledge = product.get("rag_knowledge") or {}
-    parts = [
-        _build_prefix(product),
-        f"价格：{product.get('base_price', '')}元",
-    ]
+    parts = [_build_prefix(product)]
+
+    sku_properties = _build_sku_properties_summary(product)
+    if sku_properties:
+        parts.append(f"SKU属性：{sku_properties}")
 
     marketing = knowledge.get("marketing_description", "")
     if marketing:
@@ -151,6 +152,24 @@ def _build_sku_text(product: dict) -> str:
         properties = "，".join(f"{k}：{v}" for k, v in sku.get("properties", {}).items())
         sku_lines.append(f"{properties}，价格：{sku.get('price')}元")
     return "；".join(sku_lines)
+
+
+def _build_sku_properties_summary(product: dict) -> str:
+    values_by_name: dict[str, list[str]] = {}
+    for sku in product.get("skus", []):
+        for name, value in sku.get("properties", {}).items():
+            if not value:
+                continue
+            text_value = str(value)
+            values = values_by_name.setdefault(name, [])
+            if text_value not in values:
+                values.append(text_value)
+
+    return "，".join(
+        f"{name}：{'/'.join(values)}"
+        for name, values in values_by_name.items()
+        if values
+    )
 
 
 def _metadata(product: dict) -> dict:

@@ -5,6 +5,7 @@
   "category": "食品饮料",
   "sub_category": "方便食品",
   "base_price": 45.0,
+  "stock": 2,
   "image_path": "4_食品生活/images/p_food_011_live.jpg",
   "skus": [
     {

@@ -159,6 +159,15 @@
 
 ## 后端内部模块
 
+### config.py
+
+| 常量 | 说明 |
+|------|------|
+| `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_USER` / `MYSQL_PASSWORD` / `MYSQL_DATABASE` | MySQL 商品权威源连接配置，来自 `.env` 或默认值 |
+| `DATASET_DIR` | 商品数据集目录 |
+| `CHROMA_PERSIST_DIR` / `CHROMA_COLLECTION_NAME` | ChromaDB 持久化目录与 collection 名称 |
+| `TOP_K` | 默认检索返回数量 |
+
 ### agent.py
 
 | 类/函数 | 签名 | 说明 |
@@ -250,6 +259,37 @@
 | `clear_cart` | `(conversation_id: str) -> dict` | 清空当前会话购物车并返回快照 |
 | `snapshot` | `(conversation_id: str) -> dict` | 返回 `items`、`total_quantity`、`total_price` 购物车快照 |
 
+### product_store.py
+
+MySQL 商品权威源。FastAPI 启动时会调用 `load_dataset_to_mysql()`，确保 `products` 表存在并将数据集商品按 `product_id` 幂等写入 MySQL。
+
+`products` 表关键字段：
+
+| 字段 | 说明 |
+|------|------|
+| `product_id` | 商品唯一 ID，主键 |
+| `title` / `brand` / `category` / `sub_category` | 商品基础信息 |
+| `price` | 商品当前权威价格，来自数据集 `base_price` |
+| `stock` | 商品当前权威库存，来自数据集 `stock`，缺失时默认 `2` |
+| `is_active` | 是否上架，缺失时默认 `true` |
+| `description` | 完整商品文档 |
+| `image_url` | 后端静态资源 URL |
+| `raw_payload` | 原始商品 JSON |
+| `embedding_text` | 后续 ChromaDB 构建使用的紧凑向量化文本 |
+| `created_at` / `updated_at` | 创建与更新时间；upsert 仅在商品字段变化时刷新 `updated_at` |
+
+| 函数 | 签名 | 说明 |
+|------|------|------|
+| `initialize_database` | `() -> None` | 创建 MySQL database 和 `products` 表 |
+| `load_dataset_to_mysql` | `(dataset_dir: str \| None = None) -> int` | 扫描数据集并 upsert 到 MySQL，返回加载商品数 |
+| `upsert_products` | `(records: list[dict]) -> None` | 按 `product_id` 幂等写入商品记录 |
+| `get_products_by_ids` | `(product_ids: list[str]) -> list[dict]` | 按传入顺序批量读取商品快照，缺失商品会被忽略 |
+| `get_product_by_id` | `(product_id: str) -> dict \| None` | 读取单个商品快照 |
+| `get_products_updated_after` | `(updated_after: datetime) -> list[dict]` | 查询指定时间之后更新的商品，供后续增量同步使用 |
+| `list_active_products` | `() -> list[dict]` | 返回所有上架商品 |
+| `count_products` | `() -> int` | 返回 MySQL `products` 表商品数 |
+| `product_to_record` | `(product: dict) -> dict` | 将数据集商品对象转换为 MySQL 记录 |
+
 ### retriever.py
 
 | 函数 | 签名 | 说明 |
@@ -261,7 +301,7 @@
 | 函数 | 签名 | 说明 |
 |------|------|------|
 | `load_products` | `(dataset_dir: str) -> list[dict]` | 扫描数据集目录，返回商品字典列表 |
-| `build_embedding_text` | `(product: dict) -> str` | 构建紧凑的 embedding 文本，控制在 512 token 以内 |
+| `build_embedding_text` | `(product: dict) -> str` | 构建紧凑的 embedding 文本，包含标题、品牌、类目、SKU 属性摘要、卖点、FAQ 问题摘要和评价摘要，不加入 `base_price` 和 SKU `price` 字段 |
 | `build_full_document` | `(product: dict) -> str` | 构建完整商品文档，存入 ChromaDB documents 字段 |
 | `ingest` | `(dataset_dir: str \| None = None) -> None` | 主入口：加载数据 -> 构建 embedding 文本 -> 写入 ChromaDB |
 

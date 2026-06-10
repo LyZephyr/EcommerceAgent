@@ -22,6 +22,9 @@
                                         │ ┌─────────────┐                      │
                                         │ │ CartStore   │◀─ /api/cart*         │
                                         │ └─────────────┘                      │
+                                        │ ┌─────────────┐                      │
+                                        │ │ProductStore │──▶ MySQL products    │
+                                        │ └─────────────┘                      │
                                         └──────────────────────────────────────┘
 ```
 
@@ -57,7 +60,14 @@ Phase 1: LLM 决策（非流式）
 
 ### server/config.py
 - 从 `.env` 加载环境变量
-- 导出全局配置常量，包括 API Key、模型端点、ChromaDB 路径等
+- 导出全局配置常量，包括 API Key、模型端点、MySQL 连接信息、ChromaDB 路径等
+
+### server/product_store.py
+- MySQL 商品权威源：维护 `products` 表结构和数据访问接口
+- 启动时确保数据库和商品表存在
+- 将 `ecommerce_agent_dataset/` 商品 JSON 转换为商品记录，并按 `product_id` 幂等 upsert 到 MySQL
+- 商品表保存标题、品牌、类目、价格、库存、上下架状态、图片、完整描述、原始 JSON 和 embedding 文本
+- 提供 `get_products_by_ids`、`get_product_by_id`、`get_products_updated_after`、`list_active_products`、`count_products` 等接口，供后续检索补全和 ChromaDB 同步使用
 
 ### server/agent.py
 - Agent 编排核心：单跳工具调用 + 流式生成
@@ -104,7 +114,7 @@ Phase 1: LLM 决策（非流式）
 ### server/ingest.py
 - 扫描 `ecommerce_agent_dataset/` 下所有类目目录
 - 解析商品 JSON 文件
-- 每个商品生成一条紧凑的 embedding 文本（标题+品牌+类目+价格+卖点+FAQ 问题摘要+评价摘要），控制在 512 token 以内
+- 每个商品生成一条紧凑的 embedding 文本（标题+品牌+类目+SKU 属性摘要+卖点+FAQ 问题摘要+评价摘要），控制在 512 token 以内；不加入 `base_price` 和 SKU `price` 字段，营销文案、FAQ 和评价原文不做价格清洗
 - 向量化文本与存储文本分离：embedding 基于紧凑文本计算，ChromaDB documents 存完整商品原文供 LLM 阅读
 - 写入 ChromaDB，每个 product_id 对应一条向量记录
 
@@ -118,6 +128,7 @@ Phase 1: LLM 决策（非流式）
 
 ### server/main.py
 - FastAPI 应用入口
+- 启动时调用 `product_store.load_dataset_to_mysql()`，确保 MySQL 商品权威源已初始化并加载当前数据集
 - 配置 CORS 中间件
 - 挂载 `/assets` 静态资源路径，用于返回商品图片
 - 提供 `GET /health`
@@ -138,7 +149,29 @@ Phase 1: LLM 决策（非流式）
 - `app/build.gradle.kts`：启用 `BuildConfig.API_BASE_URL`，并引入 OkHttp、OkHttp SSE、Coil、Lifecycle ViewModel Compose 与 Material Icons 依赖
 - `AndroidManifest.xml`：声明网络权限，并允许 debug 场景访问本机 FastAPI 的明文 HTTP 地址
 
-## 数据流
+## 启动数据流
+
+```text
+Server 启动
+    │
+    ▼
+server/main.py startup
+    │
+    ▼
+ProductStore
+    │ 1. CREATE DATABASE IF NOT EXISTS
+    │ 2. CREATE TABLE IF NOT EXISTS products
+    │ 3. 扫描 ecommerce_agent_dataset/*/data/*.json
+    │ 4. 构建 description 与 embedding_text
+    │ 5. 按 product_id 幂等 upsert 到 MySQL
+    ▼
+MySQL products
+    │ 商品价格、库存、上下架状态和主数据权威源
+    ▼
+FastAPI 开始服务请求
+```
+
+## 对话数据流
 
 ```text
 用户输入文字
@@ -237,6 +270,7 @@ TokenEvent
 |------|------|
 | 后端框架 | Python 3.10+ / FastAPI |
 | Agent 编排 | 单跳工具调用（OpenAI Function Calling 协议） |
+| 商品权威源 | MySQL + SQLAlchemy Core + PyMySQL |
 | 向量数据库 | ChromaDB（嵌入式） |
 | Embedding | BAAI/bge-base-zh-v1.5（512 token 窗口） |
 | LLM | Doubao-Seed-2.0-lite（Ark API） |

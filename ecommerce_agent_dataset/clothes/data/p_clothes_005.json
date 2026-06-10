@@ -5,6 +5,7 @@
   "category": "服饰运动",
   "sub_category": "卫衣",
   "base_price": 259.0,
+  "stock": 2,
   "image_path": "3_服饰运动/images/p_clothes_005_live.jpg",
   "skus": [
     {

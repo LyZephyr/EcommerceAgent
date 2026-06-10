@@ -18,9 +18,9 @@ TOOL_DEFINITION = {
             "调用规则：\n"
             "- requests: 检索子需求列表；普通推荐只填 1 个 request，场景化组合推荐可拆成 2-4 个 request\n"
             "- label: 子需求名称，如 防晒护肤、度假穿搭、通勤数码\n"
-            "- search_query: 将口语化需求改写为包含品类名和属性关键词的检索语句，只写正向需求\n"
-            "- must_have_terms: 用户明确要求的品牌/规格/功能/属性/场景/口味等\n"
-            "- exclude_terms: 否定约束，用户明确要求排除的商品品牌、属性等\n"
+            "- search_query: 将口语化需求改写为包含品类名和属性关键词的检索语句，只写正向需求（无糖，无酒精等也属于正向需求）\n"
+            "- must_have_terms: 用户明确要求的品牌/规格/功能/属性/场景/口味等（价格除外）\n"
+            "- exclude_terms: 否定约束，用户明确要求排除的商品品牌、属性（无糖/无酒精等对应的负向约束为：含糖/含酒精）等\n"
             "- exclude_brands: 需排除的具体品牌名\n"
             "- category: 能确定类目时必须填写；跨类目场景应拆成多个带 category 的 request\n"
             "- 价格：每个 request 独立填写。「以内/以下」只填 max_price；「以上/不低于」只填 min_price；"
@@ -44,7 +44,7 @@ TOOL_DEFINITION = {
                             },
                             "search_query": {
                                 "type": "string",
-                                "description": "改写后的检索语句，如 '夏季 短袖T恤 上衣 透气 速干 清凉'",
+                                "description": "改写后的检索语句，如 '手机 国产 性价比高 续航久'",
                             },
                             "category": {
                                 "type": "string",

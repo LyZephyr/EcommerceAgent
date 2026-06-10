@@ -5,6 +5,7 @@
   "category": "服饰运动",
   "sub_category": "徒步鞋",
   "base_price": 1099.0,
+  "stock": 2,
   "image_path": "3_服饰运动/images/p_clothes_015_live.jpg",
   "skus": [
     {
