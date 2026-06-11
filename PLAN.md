@@ -537,3 +537,8 @@ data class StreamingStatus(
 - 风险：固定标记协议仍可能被 LLM 写错，必须保留当前可恢复错误机制。
 - 风险：真 streaming 的增量标记解析要处理跨 chunk 标签、属性、Unicode 边界和中断落库，阶段 3 不应低估测试成本。
 - 风险：Android 块式消息模型会影响聊天、商品、对比、购物车多个 UI 区域；切换期间允许系统临时不可用，直到整轮计划完成。
+
+## Stage completion update
+
+- Stage 4 completed on the Android client: chat messages now render from ordered `Message.blocks`, streaming status is separate UI state, product cards are centered vertical cards, compare content is rendered vertically, and product details load from `GET /api/products/{product_id}` into a bottom sheet.
+- Stage 5 completed on the Android client: tapping the top-bar cart icon or `CartSummaryBar` now calls `refreshCart()` before opening `CartSheet`, and cart mutations are disabled while the refresh is in flight.

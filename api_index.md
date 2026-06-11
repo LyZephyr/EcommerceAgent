@@ -595,3 +595,26 @@ server/.venv/bin/python eval/run_saved_intent_vector_eval.py --vector-only
 |--------|---------|----------|
 | `eval/run_cart_e2e.py` | `python eval/run_cart_e2e.py --base-url http://127.0.0.1:8000` | Validates HTTP cart CRUD, SSE recommendation product capture, conversation isolation, and natural-language cart add/view/update/remove. |
 | `eval/run_cart_e2e.py --http-only` | `python eval/run_cart_e2e.py --base-url http://127.0.0.1:8000 --http-only` | Skips natural-language cart assertions when LLM access is unavailable. |
+
+## Android client block-message update
+
+| Type / member | Signature | Description |
+|---------------|-----------|-------------|
+| `MessageBlock.TextBlock` | `id: String, content: String` | Ordered text block in one chat message. |
+| `MessageBlock.ProductBlock` | `id: String, product: Product` | Ordered product card block in one chat message. |
+| `MessageBlock.CompareBlock` | `id: String, table: CompareTable` | Ordered compare block in one chat message. |
+| `Message` | `id, role, blocks, isStreaming, isError, interrupted` | Chat message model now stores ordered blocks instead of `content + products + compareTables`. |
+| `StreamingStatus` | `phase, message, step, totalSteps` | Temporary backend status UI state, not stored inside `Message.blocks`. |
+| `Product` | `productId, title, category, price, brand, subCategory, imageUrl, stock, detailUrl, landingUrl, highlights, stockStatus, unavailableReason, groupLabel` | Client product card model aligned with backend `block.product` payload. |
+| `ProductDetail` | `product, description, specs, faq, reviewSummary` | Client model for `GET /api/products/{product_id}`. |
+| `ChatEvent.StructuredStatus` | `status: StreamingStatus` | Parsed backend `status` event. |
+| `ChatEvent.BlockText` | `messageId, blockId, content` | Parsed backend `block.type=text` event. |
+| `ChatEvent.BlockTextDelta` | `messageId, blockId, content` | Parsed backend `block.type=text_delta` event. |
+| `ChatEvent.BlockProduct` | `messageId, blockId, product` | Parsed backend `block.type=product` event. |
+| `ChatEvent.BlockCompare` | `messageId, blockId, table` | Parsed backend `block.type=compare` event. |
+| `ChatApiService.getProductDetail` | `suspend (productId: String) -> ProductDetail` | Calls `GET /api/products/{product_id}`. |
+| `ChatUiState` | `messages, isLoading, streamingStatus, conversationId, cart, isCartLoading, cartError, productDetail, isProductDetailLoading, productDetailError` | Compose UI state after stage 4/5. |
+| `ChatViewModel.refreshCart` | `() -> Unit` | Refreshes cart snapshot before cart UI is opened. |
+| `ChatViewModel.openProductDetail` | `(product: Product) -> Unit` | Loads product detail sheet content. |
+| `ChatScreen` | `(..., streamingStatus, cart, isCartLoading, productDetail, ...)` | Compose screen now renders ordered blocks, independent streaming status, product detail sheet, and refreshed cart entry points. |
+| `CartSummaryBar` | `(cart, cartError, isCartLoading, onClick)` | Clicking summary should refresh cart first, then open cart sheet. |

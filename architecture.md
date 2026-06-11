@@ -401,3 +401,11 @@ End-to-end cart validation lives in `eval/run_cart_e2e.py`. It exercises empty
 cart reads, invalid add rejection, product recommendation, HTTP add, quantity
 update, deletion, clearing, conversation isolation, and natural-language cart
 operations through `/api/chat` SSE when the LLM route is available.
+
+## Android client block-message update
+
+- `client-android/data/model/Message.kt` now stores ordered `MessageBlock.TextBlock / ProductBlock / CompareBlock` entries instead of `content + products + compareTables`.
+- `client-android/data/model/Product.kt` now also models `detailUrl`, `landingUrl`, `highlights`, `stockStatus`, `unavailableReason`, `groupLabel`, and `ProductDetail`.
+- `client-android/data/api/ChatApiService.kt` parses backend `block` SSE events into typed client events and fetches `GET /api/products/{product_id}` for detail sheets.
+- `client-android/viewmodel/ChatViewModel.kt` keeps `streamingStatus` separate from the message stream, merges `text_delta` into existing text blocks, refreshes cart snapshots on demand, and loads product details before opening the detail sheet.
+- `client-android/ui/chat/ChatScreen.kt` renders messages in block order, shows centered vertical product cards, converts compare payloads into vertically readable sections, and opens the cart only after `refreshCart()` is triggered from the top-bar cart button or `CartSummaryBar`.

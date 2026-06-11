@@ -11,7 +11,11 @@ data class CartItem(
     val quantity: Int,
     val stock: Int?,
     val isActive: Boolean?,
-    val unavailableReason: String?
+    val unavailableReason: String?,
+    val detailUrl: String? = null,
+    val landingUrl: String? = null,
+    val highlights: List<String> = emptyList(),
+    val stockStatus: String? = null
 ) {
     val subtotal: Double
         get() = price * quantity

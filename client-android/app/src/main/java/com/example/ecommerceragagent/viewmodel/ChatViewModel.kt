@@ -7,8 +7,11 @@ import com.example.ecommerceragagent.data.api.ChatEvent
 import com.example.ecommerceragagent.data.model.Cart
 import com.example.ecommerceragagent.data.model.CompareTable
 import com.example.ecommerceragagent.data.model.Message
+import com.example.ecommerceragagent.data.model.MessageBlock
 import com.example.ecommerceragagent.data.model.MessageRole
 import com.example.ecommerceragagent.data.model.Product
+import com.example.ecommerceragagent.data.model.ProductDetail
+import com.example.ecommerceragagent.data.model.StreamingStatus
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -21,14 +24,23 @@ data class ChatUiState(
     val messages: List<Message> = listOf(
         Message(
             role = MessageRole.Assistant,
-            content = "你好，我是你的电商导购助手。告诉我预算、品类或使用场景，我会根据商品库推荐合适的商品。"
+            blocks = listOf(
+                MessageBlock.TextBlock(
+                    id = "welcome",
+                    content = "你好，我是你的电商导购助手。告诉我预算、品类或使用场景，我会根据商品库推荐合适的商品。"
+                )
+            )
         )
     ),
     val isLoading: Boolean = false,
+    val streamingStatus: StreamingStatus? = null,
     val conversationId: String = UUID.randomUUID().toString(),
     val cart: Cart = Cart.empty(conversationId),
     val isCartLoading: Boolean = false,
-    val cartError: String? = null
+    val cartError: String? = null,
+    val productDetail: ProductDetail? = null,
+    val isProductDetailLoading: Boolean = false,
+    val productDetailError: String? = null
 )
 
 class ChatViewModel(
@@ -47,27 +59,53 @@ class ChatViewModel(
 
         val assistantMessage = Message(
             role = MessageRole.Assistant,
-            content = "",
+            blocks = emptyList(),
             isStreaming = true
         )
 
         _uiState.update { state ->
             state.copy(
                 messages = state.messages +
-                    Message(role = MessageRole.User, content = trimmed) +
+                    Message(
+                        role = MessageRole.User,
+                        blocks = listOf(
+                            MessageBlock.TextBlock(
+                                id = UUID.randomUUID().toString(),
+                                content = trimmed
+                            )
+                        )
+                    ) +
                     assistantMessage,
-                isLoading = true
+                isLoading = true,
+                streamingStatus = null
             )
         }
 
         activeJob = viewModelScope.launch {
             apiService.streamChat(trimmed, _uiState.value.conversationId).collect { event ->
                 when (event) {
-                    is ChatEvent.Status -> updateStatus(assistantMessage.id, event.message)
+                    is ChatEvent.StructuredStatus -> updateStatus(event.status)
                     is ChatEvent.CartUpdated -> updateCart(event.cart)
-                    is ChatEvent.ProductFound -> appendProduct(assistantMessage.id, event.product)
-                    is ChatEvent.Compare -> appendCompareTable(assistantMessage.id, event.table)
-                    is ChatEvent.Token -> appendToken(assistantMessage.id, event.content)
+                    is ChatEvent.BlockText -> appendTextBlock(
+                        assistantMessage.id,
+                        event.blockId,
+                        event.content
+                    )
+                    is ChatEvent.BlockTextDelta -> appendTextDelta(
+                        assistantMessage.id,
+                        event.blockId,
+                        event.content
+                    )
+                    is ChatEvent.BlockProduct -> appendProductBlock(
+                        assistantMessage.id,
+                        event.blockId,
+                        event.product
+                    )
+                    is ChatEvent.BlockCompare -> appendCompareBlock(
+                        assistantMessage.id,
+                        event.blockId,
+                        event.table
+                    )
                     ChatEvent.Done -> finishStreaming(assistantMessage.id)
                     is ChatEvent.Error -> showError(assistantMessage.id, event.message)
                 }
@@ -78,6 +116,45 @@ class ChatViewModel(
     fun refreshCart() {
         launchCartOperation {
             apiService.getCart(_uiState.value.conversationId)
+        }
+    }
+
+    fun openProductDetail(product: Product) {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    productDetail = null,
+                    isProductDetailLoading = true,
+                    productDetailError = null
+                )
+            }
+            try {
+                val detail = apiService.getProductDetail(product.productId)
+                _uiState.update {
+                    it.copy(
+                        productDetail = detail,
+                        isProductDetailLoading = false
+                    )
+                }
+            } catch (error: Exception) {
+                _uiState.update {
+                    it.copy(
+                        productDetail = null,
+                        isProductDetailLoading = false,
+                        productDetailError = error.message ?: "商品详情加载失败"
+                    )
+                }
+            }
+        }
+    }
+
+    fun dismissProductDetail() {
+        _uiState.update {
+            it.copy(
+                productDetail = null,
+                isProductDetailLoading = false,
+                productDetailError = null
+            )
         }
     }
 
@@ -136,12 +213,13 @@ class ChatViewModel(
             state.copy(
                 messages = state.messages.map { message ->
                     if (message.isStreaming) {
-                        message.copy(isStreaming = false)
+                        message.copy(isStreaming = false, interrupted = true)
                     } else {
                         message
                     }
                 },
-                isLoading = false
+                isLoading = false,
+                streamingStatus = null
             )
         }
     }
@@ -173,31 +251,65 @@ class ChatViewModel(
         }
     }
 
-    private fun appendProduct(messageId: String, product: Product) {
+    private fun appendTextBlock(messageId: String, blockId: String, content: String) {
         updateMessage(messageId) { message ->
-            if (message.products.any { it.productId == product.productId }) {
-                message
+            message.copy(
+                blocks = message.blocks.replaceOrAppendBlock(blockId) {
+                    MessageBlock.TextBlock(id = blockId, content = content)
+                }
+            )
+        }
+        clearStreamingStatus()
+    }
+
+    private fun appendTextDelta(messageId: String, blockId: String, token: String) {
+        updateMessage(messageId) { message ->
+            val index = message.blocks.indexOfFirst { it.id == blockId }
+            val blocks = if (index >= 0) {
+                message.blocks.mapIndexed { blockIndex, block ->
+                    if (blockIndex == index && block is MessageBlock.TextBlock) {
+                        block.copy(content = block.content + token)
+                    } else {
+                        block
+                    }
+                }
             } else {
-                message.copy(products = message.products + product)
+                message.blocks + MessageBlock.TextBlock(id = blockId, content = token)
             }
+            message.copy(blocks = blocks)
         }
+        clearStreamingStatus()
     }
 
-    private fun appendCompareTable(messageId: String, table: CompareTable) {
+    private fun appendProductBlock(messageId: String, blockId: String, product: Product) {
         updateMessage(messageId) { message ->
-            message.copy(compareTables = message.compareTables + table)
+            message.copy(
+                blocks = message.blocks.replaceOrAppendBlock(blockId) {
+                    MessageBlock.ProductBlock(id = blockId, product = product)
+                }
+            )
         }
+        clearStreamingStatus()
     }
 
-    private fun appendToken(messageId: String, token: String) {
+    private fun appendCompareBlock(messageId: String, blockId: String, table: CompareTable) {
         updateMessage(messageId) { message ->
-            message.copy(content = message.content + token, status = null)
+            message.copy(
+                blocks = message.blocks.replaceOrAppendBlock(blockId) {
+                    MessageBlock.CompareBlock(id = blockId, table = table)
+                }
+            )
         }
+        clearStreamingStatus()
     }
 
-    private fun updateStatus(messageId: String, status: String) {
-        updateMessage(messageId) { message ->
-            message.copy(status = status)
+    private fun updateStatus(status: StreamingStatus) {
+        _uiState.update { it.copy(streamingStatus = status) }
+    }
+
+    private fun clearStreamingStatus() {
+        if (_uiState.value.streamingStatus != null) {
+            _uiState.update { it.copy(streamingStatus = null) }
         }
     }
 
@@ -212,7 +324,8 @@ class ChatViewModel(
                         message
                     }
                 },
-                isLoading = false
+                isLoading = false,
+                streamingStatus = null
             )
         }
     }
@@ -224,7 +337,12 @@ class ChatViewModel(
                 messages = state.messages.map { message ->
                     if (message.id == messageId) {
                         message.copy(
-                            content = "连接后端失败：$error",
+                            blocks = listOf(
+                                MessageBlock.TextBlock(
+                                    id = "error",
+                                    content = "连接后端失败：$error"
+                                )
+                            ),
                             isStreaming = false,
                             isError = true
                         )
@@ -232,7 +350,8 @@ class ChatViewModel(
                         message
                     }
                 },
-                isLoading = false
+                isLoading = false,
+                streamingStatus = null
             )
         }
     }
@@ -248,6 +367,18 @@ class ChatViewModel(
                     }
                 }
             )
+        }
+    }
+
+    private fun List<MessageBlock>.replaceOrAppendBlock(
+        blockId: String,
+        create: () -> MessageBlock
+    ): List<MessageBlock> {
+        val index = indexOfFirst { it.id == blockId }
+        return if (index >= 0) {
+            mapIndexed { itemIndex, block -> if (itemIndex == index) create() else block }
+        } else {
+            this + create()
         }
     }
 }

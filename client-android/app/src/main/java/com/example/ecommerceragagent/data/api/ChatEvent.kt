@@ -3,13 +3,15 @@ package com.example.ecommerceragagent.data.api
 import com.example.ecommerceragagent.data.model.Cart
 import com.example.ecommerceragagent.data.model.CompareTable
 import com.example.ecommerceragagent.data.model.Product
+import com.example.ecommerceragagent.data.model.StreamingStatus
 
 sealed interface ChatEvent {
-    data class Status(val message: String) : ChatEvent
+    data class StructuredStatus(val status: StreamingStatus) : ChatEvent
     data class CartUpdated(val cart: Cart) : ChatEvent
-    data class ProductFound(val product: Product) : ChatEvent
-    data class Compare(val table: CompareTable) : ChatEvent
-    data class Token(val content: String) : ChatEvent
+    data class BlockText(val messageId: String, val blockId: String, val content: String) : ChatEvent
+    data class BlockTextDelta(val messageId: String, val blockId: String, val content: String) : ChatEvent
+    data class BlockProduct(val messageId: String, val blockId: String, val product: Product) : ChatEvent
+    data class BlockCompare(val messageId: String, val blockId: String, val table: CompareTable) : ChatEvent
     data object Done : ChatEvent
     data class Error(val message: String) : ChatEvent
 }

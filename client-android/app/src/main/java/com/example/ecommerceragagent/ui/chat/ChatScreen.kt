@@ -1,19 +1,15 @@
 package com.example.ecommerceragagent.ui.chat
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -25,12 +21,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddShoppingCart
@@ -38,18 +33,21 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.ShoppingCart
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -68,9 +66,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
@@ -78,8 +76,11 @@ import com.example.ecommerceragagent.data.model.Cart
 import com.example.ecommerceragagent.data.model.CartItem
 import com.example.ecommerceragagent.data.model.CompareTable
 import com.example.ecommerceragagent.data.model.Message
+import com.example.ecommerceragagent.data.model.MessageBlock
 import com.example.ecommerceragagent.data.model.MessageRole
 import com.example.ecommerceragagent.data.model.Product
+import com.example.ecommerceragagent.data.model.ProductDetail
+import com.example.ecommerceragagent.data.model.StreamingStatus
 import com.example.ecommerceragagent.viewmodel.ChatViewModel
 import java.text.NumberFormat
 import java.util.Locale
@@ -92,12 +93,19 @@ fun ChatRoute(
     ChatScreen(
         messages = uiState.messages,
         isLoading = uiState.isLoading,
+        streamingStatus = uiState.streamingStatus,
         cart = uiState.cart,
         isCartLoading = uiState.isCartLoading,
         cartError = uiState.cartError,
+        productDetail = uiState.productDetail,
+        isProductDetailLoading = uiState.isProductDetailLoading,
+        productDetailError = uiState.productDetailError,
         onSendMessage = viewModel::sendMessage,
         onCancelResponse = viewModel::cancelResponse,
         onAddToCart = viewModel::addToCart,
+        onOpenProduct = viewModel::openProductDetail,
+        onDismissProduct = viewModel::dismissProductDetail,
+        onRefreshCart = viewModel::refreshCart,
         onIncrementCartItem = viewModel::incrementCartItem,
         onDecrementCartItem = viewModel::decrementCartItem,
         onRemoveCartItem = viewModel::removeCartItem,
@@ -110,12 +118,19 @@ fun ChatRoute(
 fun ChatScreen(
     messages: List<Message>,
     isLoading: Boolean,
+    streamingStatus: StreamingStatus?,
     cart: Cart,
     isCartLoading: Boolean,
     cartError: String?,
+    productDetail: ProductDetail?,
+    isProductDetailLoading: Boolean,
+    productDetailError: String?,
     onSendMessage: (String) -> Unit,
     onCancelResponse: () -> Unit,
     onAddToCart: (Product) -> Unit,
+    onOpenProduct: (Product) -> Unit,
+    onDismissProduct: () -> Unit,
+    onRefreshCart: () -> Unit,
     onIncrementCartItem: (String) -> Unit,
     onDecrementCartItem: (String) -> Unit,
     onRemoveCartItem: (String) -> Unit,
@@ -123,24 +138,12 @@ fun ChatScreen(
 ) {
     val listState = rememberLazyListState()
     var input by rememberSaveable { mutableStateOf("") }
-    var selectedProduct by remember { mutableStateOf<Product?>(null) }
     var showCart by rememberSaveable { mutableStateOf(false) }
 
-    LaunchedEffect(messages.size, messages.lastOrNull()?.content) {
+    LaunchedEffect(messages, streamingStatus?.message) {
         if (messages.isNotEmpty()) {
             listState.animateScrollToItem(messages.lastIndex)
         }
-    }
-
-    selectedProduct?.let { product ->
-        ProductDialog(
-            product = product,
-            onAddToCart = {
-                onAddToCart(product)
-                selectedProduct = null
-            },
-            onDismiss = { selectedProduct = null }
-        )
     }
 
     if (showCart) {
@@ -153,6 +156,16 @@ fun ChatScreen(
             onDecrement = onDecrementCartItem,
             onRemove = onRemoveCartItem,
             onClear = onClearCart
+        )
+    }
+
+    if (isProductDetailLoading || productDetail != null || productDetailError != null) {
+        ProductDetailSheet(
+            detail = productDetail,
+            isLoading = isProductDetailLoading,
+            error = productDetailError,
+            onDismiss = onDismissProduct,
+            onAddToCart = { productDetail?.product?.let(onAddToCart) }
         )
     }
 
@@ -170,14 +183,21 @@ fun ChatScreen(
                             fontWeight = FontWeight.SemiBold
                         )
                         Text(
-                            text = if (isLoading) "正在检索商品并生成回复" else "RAG 商品推荐",
+                            text = streamingStatus?.message ?: "RAG 商品推荐",
                             style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 },
                 actions = {
-                    IconButton(onClick = { showCart = true }) {
+                    IconButton(
+                        onClick = {
+                            onRefreshCart()
+                            showCart = true
+                        }
+                    ) {
                         BadgedBox(
                             badge = {
                                 if (cart.totalQuantity > 0) {
@@ -201,7 +221,10 @@ fun ChatScreen(
                         cart = cart,
                         cartError = cartError,
                         isCartLoading = isCartLoading,
-                        onClick = { showCart = true }
+                        onClick = {
+                            onRefreshCart()
+                            showCart = true
+                        }
                     )
                 }
                 ChatInputBar(
@@ -229,9 +252,14 @@ fun ChatScreen(
             items(messages, key = { it.id }) { message ->
                 MessageItem(
                     message = message,
-                    onProductClick = { selectedProduct = it },
+                    onProductClick = onOpenProduct,
                     onAddToCart = onAddToCart
                 )
+            }
+            if (streamingStatus != null) {
+                item(key = "streaming-status") {
+                    StreamingStatusCard(status = streamingStatus)
+                }
             }
         }
     }
@@ -245,61 +273,70 @@ private fun MessageItem(
 ) {
     val isUser = message.role == MessageRole.User
     val alignment = if (isUser) Alignment.End else Alignment.Start
+    var previousGroup: String? = null
 
     Column(
         modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = alignment
+        horizontalAlignment = alignment,
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        MessageBubble(message = message)
-        if (message.compareTables.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                message.compareTables.forEach { table ->
-                    CompareTableCard(table = table)
-                }
-            }
+        if (message.blocks.isEmpty() && message.isStreaming) {
+            TypingBubble()
         }
-        if (message.products.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(8.dp))
-            LazyRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                contentPadding = PaddingValues(
-                    start = if (isUser) 56.dp else 0.dp,
-                    end = if (isUser) 0.dp else 40.dp
+        message.blocks.forEach { block ->
+            when (block) {
+                is MessageBlock.TextBlock -> MessageBubble(
+                    text = block.content,
+                    isUser = isUser,
+                    isError = message.isError
                 )
-            ) {
-                items(message.products, key = { it.productId }) { product ->
+                is MessageBlock.ProductBlock -> {
+                    val group = block.product.groupLabel
+                    if (!group.isNullOrBlank() && group != previousGroup) {
+                        GroupLabel(text = group)
+                    }
+                    previousGroup = group
                     ProductCard(
-                        product = product,
-                        onClick = { onProductClick(product) },
-                        onAddToCart = { onAddToCart(product) }
+                        product = block.product,
+                        onClick = { onProductClick(block.product) },
+                        onAddToCart = { onAddToCart(block.product) }
                     )
                 }
+                is MessageBlock.CompareBlock -> CompareTableCard(table = block.table)
             }
+        }
+        if (message.interrupted) {
+            Text(
+                text = "已停止生成",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
 
 @Composable
-private fun MessageBubble(message: Message) {
-    val isUser = message.role == MessageRole.User
+private fun MessageBubble(
+    text: String,
+    isUser: Boolean,
+    isError: Boolean = false
+) {
+    if (text.isBlank()) {
+        return
+    }
     val background = when {
-        message.isError -> MaterialTheme.colorScheme.errorContainer
+        isError -> MaterialTheme.colorScheme.errorContainer
         isUser -> MaterialTheme.colorScheme.primary
         else -> MaterialTheme.colorScheme.surfaceVariant
     }
     val contentColor = when {
-        message.isError -> MaterialTheme.colorScheme.onErrorContainer
+        isError -> MaterialTheme.colorScheme.onErrorContainer
         isUser -> MaterialTheme.colorScheme.onPrimary
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
 
     Surface(
-        modifier = Modifier.widthIn(max = 320.dp),
+        modifier = Modifier.widthIn(max = 340.dp),
         shape = RoundedCornerShape(
             topStart = 8.dp,
             topEnd = 8.dp,
@@ -309,18 +346,80 @@ private fun MessageBubble(message: Message) {
         color = background,
         contentColor = contentColor
     ) {
-        val text = when {
-            message.content.isNotBlank() -> message.content
-            message.status != null -> message.status
-            message.isStreaming -> "正在整理推荐..."
-            else -> ""
-        }
         Text(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
             text = text,
             style = MaterialTheme.typography.bodyLarge
         )
     }
+}
+
+@Composable
+private fun TypingBubble() {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+            Text(
+                text = "正在整理推荐...",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun StreamingStatusCard(status: StreamingStatus) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = status.message,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (status.step != null && status.totalSteps != null) {
+                    Text(
+                        text = "${status.step}/${status.totalSteps}",
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                }
+            }
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
+    }
+}
+
+@Composable
+private fun GroupLabel(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.primary,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.padding(top = 4.dp)
+    )
 }
 
 @Composable
@@ -335,98 +434,40 @@ private fun CompareTableCard(table: CompareTable) {
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
             Text(
                 text = "商品对比",
                 style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface
+                fontWeight = FontWeight.SemiBold
             )
-            Spacer(modifier = Modifier.height(8.dp))
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-            ) {
-                CompareHeaderRow(table = table)
-                table.rows.forEach { row ->
-                    CompareBodyRow(table = table, dimension = row.dimension, values = row.values)
+            if (table.products.size > 3) {
+                Text(
+                    text = "当前对比商品较多，建议选择 2-3 个重点商品继续追问。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            table.rows.forEach { row ->
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = row.dimension,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    table.products.forEach { product ->
+                        Text(
+                            text = "${product.title}：${row.values[product.productId].orEmpty().ifBlank { "-" }}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun CompareHeaderRow(table: CompareTable) {
-    Row(modifier = Modifier.height(IntrinsicSize.Min)) {
-        CompareCell(
-            text = "维度",
-            width = 88.dp,
-            isHeader = true
-        )
-        table.products.forEach { product ->
-            CompareCell(
-                text = product.title,
-                width = 150.dp,
-                isHeader = true
-            )
-        }
-    }
-}
-
-@Composable
-private fun CompareBodyRow(
-    table: CompareTable,
-    dimension: String,
-    values: Map<String, String>
-) {
-    Row(modifier = Modifier.height(IntrinsicSize.Min)) {
-        CompareCell(
-            text = dimension,
-            width = 88.dp,
-            isHeader = true
-        )
-        table.products.forEach { product ->
-            CompareCell(
-                text = values[product.productId].orEmpty().ifBlank { "-" },
-                width = 150.dp
-            )
-        }
-    }
-}
-
-@Composable
-private fun CompareCell(
-    text: String,
-    width: Dp,
-    isHeader: Boolean = false
-) {
-    val background = if (isHeader) {
-        MaterialTheme.colorScheme.surfaceVariant
-    } else {
-        MaterialTheme.colorScheme.surface
-    }
-    val textColor = if (isHeader) {
-        MaterialTheme.colorScheme.onSurfaceVariant
-    } else {
-        MaterialTheme.colorScheme.onSurface
-    }
-
-    Box(
-        modifier = Modifier
-            .width(width)
-            .fillMaxHeight()
-            .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
-            .background(background)
-            .padding(horizontal = 8.dp, vertical = 8.dp)
-    ) {
-        Text(
-            text = text,
-            style = MaterialTheme.typography.bodySmall,
-            fontWeight = if (isHeader) FontWeight.SemiBold else FontWeight.Normal,
-            color = textColor
-        )
     }
 }
 
@@ -437,32 +478,35 @@ private fun ProductCard(
     onAddToCart: () -> Unit
 ) {
     val priceText = remember(product.price) { formatPrice(product.price) }
+    val statusText = product.unavailableReason ?: stockStatusText(product.stockStatus, product.stock)
+    val canAddToCart = product.unavailableReason == null &&
+        product.stockStatus != "inactive" &&
+        product.stockStatus != "out_of_stock"
 
     Card(
         modifier = Modifier
-            .widthIn(min = 220.dp, max = 220.dp)
+            .fillMaxWidth(0.92f)
+            .widthIn(max = 420.dp)
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Column(modifier = Modifier.padding(10.dp)) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             ProductImage(
                 imageUrl = product.imageUrl,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(1.35f)
+                    .aspectRatio(1.45f)
                     .clip(RoundedCornerShape(6.dp))
             )
-            Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = product.title,
-                style = MaterialTheme.typography.titleSmall,
+                style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
-            Spacer(modifier = Modifier.height(6.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -482,31 +526,41 @@ private fun ProductCard(
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            Spacer(modifier = Modifier.height(6.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                AssistChip(
-                    onClick = onClick,
-                    label = {
-                        Text(
-                            text = product.subCategory ?: product.category,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+            if (!statusText.isNullOrBlank()) {
+                Text(
+                    text = statusText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (canAddToCart) {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    } else {
+                        MaterialTheme.colorScheme.error
                     }
                 )
-                IconButton(
-                    modifier = Modifier.size(40.dp),
+            }
+            if (product.highlights.isNotEmpty()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    product.highlights.take(2).forEach { highlight ->
+                        AssistChip(onClick = onClick, label = { Text(highlight, maxLines = 1) })
+                    }
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    modifier = Modifier.weight(1f),
+                    onClick = onClick
+                ) {
+                    Text("查看详情")
+                }
+                FilledTonalButton(
+                    enabled = canAddToCart,
                     onClick = onAddToCart
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.AddShoppingCart,
-                        contentDescription = "加入购物车",
-                        tint = MaterialTheme.colorScheme.primary
-                    )
+                    Icon(imageVector = Icons.Default.AddShoppingCart, contentDescription = null)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("加入")
                 }
             }
         }
@@ -573,10 +627,7 @@ private fun ChatInputBar(
                     modifier = Modifier.size(48.dp),
                     onClick = onCancel
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "停止"
-                    )
+                    Icon(imageVector = Icons.Default.Close, contentDescription = "停止")
                 }
             } else {
                 IconButton(
@@ -584,10 +635,132 @@ private fun ChatInputBar(
                     enabled = input.isNotBlank(),
                     onClick = onSend
                 ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.Send,
-                        contentDescription = "发送"
+                    Icon(imageVector = Icons.AutoMirrored.Filled.Send, contentDescription = "发送")
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ProductDetailSheet(
+    detail: ProductDetail?,
+    isLoading: Boolean,
+    error: String?,
+    onDismiss: () -> Unit,
+    onAddToCart: () -> Unit
+) {
+    val uriHandler = LocalUriHandler.current
+    val product = detail?.product
+    val canAddToCart = product != null &&
+        product.unavailableReason == null &&
+        product.stockStatus != "inactive" &&
+        product.stockStatus != "out_of_stock"
+
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            when {
+                isLoading -> {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(180.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                }
+                error != null -> {
+                    Text(
+                        text = error,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error
                     )
+                }
+                detail != null && product != null -> {
+                    ProductImage(
+                        imageUrl = product.imageUrl,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(1.55f)
+                            .clip(RoundedCornerShape(8.dp))
+                    )
+                    Text(
+                        text = product.title,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    ProductInfoRow(label = "价格", value = formatPrice(product.price))
+                    product.brand?.let { ProductInfoRow(label = "品牌", value = it) }
+                    ProductInfoRow(label = "品类", value = product.subCategory ?: product.category)
+                    ProductInfoRow(
+                        label = "库存",
+                        value = stockStatusText(product.stockStatus, product.stock) ?: "有货"
+                    )
+                    product.unavailableReason?.let {
+                        Text(
+                            text = it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                    detail.description?.takeIf { it.isNotBlank() }?.let {
+                        SectionText(title = "商品描述", content = it)
+                    }
+                    if (product.highlights.isNotEmpty()) {
+                        SectionText(title = "卖点", content = product.highlights.joinToString(" / "))
+                    }
+                    detail.specs.takeIf { it.isNotEmpty() }?.let { specs ->
+                        SectionText(
+                            title = "规格",
+                            content = specs.joinToString("\n") { "${it.name}：${it.value}" }
+                        )
+                    }
+                    detail.reviewSummary?.let { review ->
+                        val rating = review.averageRating?.let { "评分 $it" }
+                        val count = review.totalCount?.let { "${it} 条评价" }
+                        SectionText(
+                            title = "评价",
+                            content = listOfNotNull(rating, count)
+                                .plus(review.highlights)
+                                .joinToString(" / ")
+                        )
+                    }
+                    detail.faq.takeIf { it.isNotEmpty() }?.let { faq ->
+                        SectionText(
+                            title = "FAQ",
+                            content = faq.joinToString("\n") { "Q：${it.question}\nA：${it.answer}" }
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            modifier = Modifier.weight(1f),
+                            enabled = canAddToCart,
+                            onClick = onAddToCart
+                        ) {
+                            Icon(imageVector = Icons.Default.AddShoppingCart, contentDescription = null)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("加入购物车")
+                        }
+                        product.landingUrl?.let { url ->
+                            OutlinedButton(onClick = { uriHandler.openUri(url) }) {
+                                Icon(imageVector = Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("商品页")
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -595,47 +768,19 @@ private fun ChatInputBar(
 }
 
 @Composable
-private fun ProductDialog(
-    product: Product,
-    onAddToCart: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    val priceText = remember(product.price) { formatPrice(product.price) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("关闭")
-            }
-        },
-        confirmButton = {
-            Button(onClick = onAddToCart) {
-                Icon(
-                    imageVector = Icons.Default.AddShoppingCart,
-                    contentDescription = null
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("加入购物车")
-            }
-        },
-        title = { Text(product.title) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                ProductImage(
-                    imageUrl = product.imageUrl,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(1.45f)
-                        .clip(RoundedCornerShape(8.dp))
-                )
-                ProductInfoRow(label = "价格", value = priceText)
-                product.brand?.let { ProductInfoRow(label = "品牌", value = it) }
-                ProductInfoRow(label = "品类", value = product.category)
-                product.subCategory?.let { ProductInfoRow(label = "细分", value = it) }
-            }
-        }
-    )
+private fun SectionText(title: String, content: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold
+        )
+        Text(
+            text = content,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
 }
 
 @Composable
@@ -652,7 +797,7 @@ private fun CartSummaryBar(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .clickable(enabled = !isCartLoading, onClick = onClick),
         tonalElevation = 2.dp,
         color = MaterialTheme.colorScheme.primaryContainer,
         contentColor = MaterialTheme.colorScheme.onPrimaryContainer
@@ -667,10 +812,7 @@ private fun CartSummaryBar(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Default.ShoppingCart,
-                    contentDescription = null
-                )
+                Icon(imageVector = Icons.Default.ShoppingCart, contentDescription = null)
                 Text(
                     text = summaryText,
                     style = MaterialTheme.typography.bodyMedium,
@@ -731,6 +873,10 @@ private fun CartSheet(
                 ) {
                     Text("清空")
                 }
+            }
+
+            if (isCartLoading) {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             }
 
             cartError?.let {
@@ -873,10 +1019,7 @@ private fun CartItemRow(
                         enabled = canAdjustQuantity,
                         onClick = onDecrement
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Remove,
-                            contentDescription = "减少"
-                        )
+                        Icon(imageVector = Icons.Default.Remove, contentDescription = "减少")
                     }
                     Text(
                         text = item.quantity.toString(),
@@ -888,10 +1031,7 @@ private fun CartItemRow(
                         enabled = canAdjustQuantity,
                         onClick = onIncrement
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = "增加"
-                        )
+                        Icon(imageVector = Icons.Default.Add, contentDescription = "增加")
                     }
                 }
             }
@@ -929,6 +1069,16 @@ private fun ProductInfoRow(
             fontWeight = FontWeight.Medium,
             color = MaterialTheme.colorScheme.onSurface
         )
+    }
+}
+
+private fun stockStatusText(stockStatus: String?, stock: Int?): String? {
+    return when (stockStatus) {
+        "inactive" -> "商品已下架"
+        "out_of_stock" -> "暂无库存"
+        "low_stock" -> stock?.let { "库存紧张，仅剩 $it 件" } ?: "库存紧张"
+        "in_stock" -> stock?.let { "库存 $it 件" }
+        else -> stock?.let { "库存 $it 件" }
     }
 }
 
