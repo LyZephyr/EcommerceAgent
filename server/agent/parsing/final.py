@@ -1,0 +1,114 @@
+"""最终回复解析编排。"""
+
+from __future__ import annotations
+
+import re
+
+from agent.errors import RecoverableAgentError
+from agent.events import ParsedFinalResponse
+from agent.parsing.compare import loads_compare_payload_or_raise
+from agent.parsing.markers import (
+    ensure_marker_is_first_line,
+    strip_hidden_event_marker_text,
+    validate_marker_syntax,
+)
+from agent.parsing.mobile import validate_mobile_visible_reply
+from agent.parsing.recommend import (
+    parse_recommendation_marker,
+    recommendation_visible_text,
+)
+
+
+def parse_final_response(
+    text: str,
+    *,
+    require_recommend_marker: bool,
+    candidate_ids: set[str],
+    candidate_groups: list[dict] | None = None,
+) -> ParsedFinalResponse:
+    validate_marker_syntax(text)
+    recommend_matches = list(re.finditer(r"<R\b[^>]*>.*?</R>\s*", text, flags=re.DOTALL))
+    compare_matches = list(re.finditer(r"<C>(.*?)</C>\n?", text, flags=re.DOTALL))
+
+    if len(recommend_matches) > 1:
+        raise RecoverableAgentError(
+            "hidden_marker_invalid",
+            "回复中只能出现一个 <R> 推荐标记。",
+            raw_output=text,
+            details={"recommend_marker_count": len(recommend_matches)},
+        )
+    if len(compare_matches) > 1:
+        raise RecoverableAgentError(
+            "hidden_marker_invalid",
+            "回复中只能出现一个 <C> 对比标记。",
+            raw_output=text,
+            details={"compare_marker_count": len(compare_matches)},
+        )
+    if recommend_matches and compare_matches:
+        raise RecoverableAgentError(
+            "hidden_marker_invalid",
+            "<R> 和 <C> 不能同时出现在同一条回复中。",
+            raw_output=text,
+        )
+    if require_recommend_marker and not recommend_matches:
+        raise RecoverableAgentError(
+            "recommend_marker_missing",
+            "本轮调用过 retrieve_products，最终回复必须输出 <R>...</R> 推荐块。",
+            raw_output=text,
+            details={"candidate_ids": sorted(candidate_ids)},
+        )
+
+    if recommend_matches:
+        recommend_match = recommend_matches[0]
+        outside_text = text[: recommend_match.start()] + text[recommend_match.end() :]
+        if outside_text.strip():
+            raise RecoverableAgentError(
+                "recommend_marker_visible_text_outside",
+                "推荐场景中 <R>...</R> 外不允许有非空正文。",
+                raw_output=text,
+                details={"outside_text": outside_text.strip()},
+            )
+        recommendation = parse_recommendation_marker(
+            recommend_match.group(0).strip(),
+            raw_output=text,
+            candidate_ids=candidate_ids,
+            candidate_groups=candidate_groups or [],
+        )
+        if require_recommend_marker and candidate_ids and not recommendation.items:
+            raise RecoverableAgentError(
+                "recommend_marker_empty",
+                "本轮工具返回了候选商品，<R> 中至少需要包含 1 个推荐商品。",
+                raw_output=text,
+                details={"candidate_ids": sorted(candidate_ids)},
+            )
+        clean_text = recommendation_visible_text(recommendation)
+        return ParsedFinalResponse(recommendation, None, clean_text)
+
+    clean_text = strip_hidden_event_marker_text(text)
+    if not clean_text.strip():
+        raise RecoverableAgentError(
+            "visible_reply_empty",
+            "去除隐藏事件标记后，用户可见回复为空。",
+            raw_output=text,
+        )
+
+    if compare_matches:
+        compare_match = compare_matches[0]
+        ensure_marker_is_first_line(text, compare_match, "<C>")
+        compare_payload = loads_compare_payload_or_raise(
+            compare_match.group(1),
+            raw_output=text,
+        )
+        validate_mobile_visible_reply(
+            clean_text,
+            raw_output=text,
+            enforce_length=True,
+        )
+        return ParsedFinalResponse(None, compare_payload, clean_text)
+
+    validate_mobile_visible_reply(
+        text,
+        raw_output=text,
+        enforce_length=False,
+    )
+    return ParsedFinalResponse(None, None, text)

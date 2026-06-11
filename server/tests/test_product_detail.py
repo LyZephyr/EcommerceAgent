@@ -2,16 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import json
-from pathlib import Path
-import sys
 
 import pytest
 from fastapi import HTTPException
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-import main  # noqa: E402
-import product_store  # noqa: E402
+import product_store
+from api.products import get_product_detail
+from catalog import product_presenter
 
 
 def test_get_product_detail_returns_public_detail_fields(monkeypatch) -> None:
@@ -39,17 +36,17 @@ def test_get_product_detail_returns_none_for_missing_product(monkeypatch) -> Non
 
 
 def test_product_detail_endpoint_returns_404(monkeypatch) -> None:
-    monkeypatch.setattr(main.product_store, "get_product_detail", lambda product_id: None)
+    monkeypatch.setattr(product_store, "get_product_detail", lambda product_id: None)
 
     with pytest.raises(HTTPException) as exc_info:
-        asyncio.run(main.get_product_detail("missing"))
+        asyncio.run(get_product_detail("missing"))
 
     assert exc_info.value.status_code == 404
 
 
 def test_product_card_payload_marks_inactive_and_out_of_stock() -> None:
-    inactive = product_store.product_card_payload(_product(is_active=False, stock=8))
-    out_of_stock = product_store.product_card_payload(_product(stock=0))
+    inactive = product_presenter.product_card_payload(_product(is_active=False, stock=8))
+    out_of_stock = product_presenter.product_card_payload(_product(stock=0))
 
     assert inactive["stock_status"] == "inactive"
     assert inactive["unavailable_reason"] == "商品已下架"
@@ -58,7 +55,7 @@ def test_product_card_payload_marks_inactive_and_out_of_stock() -> None:
 
 
 def test_product_card_payload_includes_group_label() -> None:
-    card = product_store.product_card_payload(_product(), group_label="早餐奶")
+    card = product_presenter.product_card_payload(_product(), group_label="早餐奶")
 
     assert card["group_label"] == "早餐奶"
     assert card["detail_url"] == "/api/products/p1"
