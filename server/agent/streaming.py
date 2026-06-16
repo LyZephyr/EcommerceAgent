@@ -4,14 +4,12 @@ from __future__ import annotations
 
 import time
 
-from agent.emitters import recommendation_history_text
 from agent.errors import RecoverableAgentError
 from agent.events import (
     BlockCompareEvent,
     BlockProductEvent,
     BlockTextDeltaEvent,
     ParsedFinalResponse,
-    ParsedRecommendation,
     RecommendationItem,
 )
 from agent.logging_utils import elapsed_ms
@@ -38,15 +36,15 @@ class StreamingFinalEmitter:
         self,
         *,
         message_id: str,
+        attempt_id: str,
         candidates_by_id: dict[str, dict],
         candidate_groups: list[dict],
-        require_recommend_marker: bool,
     ) -> None:
         self.message_id = message_id
+        self.attempt_id = attempt_id
         self.candidates_by_id = candidates_by_id
         self.candidate_ids = set(candidates_by_id)
         self.candidate_groups = candidate_groups
-        self.require_recommend_marker = require_recommend_marker
         self.buffer = ""
         self.raw_output = ""
         self.mode: str | None = None
@@ -62,11 +60,6 @@ class StreamingFinalEmitter:
         self.first_visible_ms: float | None = None
         self.visible_char_count = 0
         self.visible_text_parts: list[str] = []
-        self.visible_products: list[str] = []
-
-    @property
-    def has_visible_output(self) -> bool:
-        return bool(self.visible_text_parts or self.visible_products)
 
     def feed(
         self,
@@ -88,7 +81,6 @@ class StreamingFinalEmitter:
         if self.mode in {"text", "compare"}:
             return parse_final_response(
                 self.raw_output,
-                require_recommend_marker=self.require_recommend_marker,
                 candidate_ids=self.candidate_ids,
                 candidate_groups=self.candidate_groups,
             )
@@ -101,26 +93,9 @@ class StreamingFinalEmitter:
             )
         return parse_final_response(
             self.raw_output,
-            require_recommend_marker=self.require_recommend_marker,
             candidate_ids=self.candidate_ids,
             candidate_groups=self.candidate_groups,
         )
-
-    def interrupted_history_text(self, candidates_by_id: dict[str, dict]) -> str:
-        if self.items:
-            recommendation = ParsedRecommendation(
-                intro=self.intro,
-                items=self.items,
-                outro=self.outro,
-            )
-            text = recommendation_history_text(recommendation, candidates_by_id)
-        else:
-            text = "".join(self.visible_text_parts).strip()
-            for product_id in self.visible_products:
-                product = candidates_by_id.get(product_id, {})
-                title = product.get("title") or product_id
-                text += f"\n[商品] {title}（product_id={product_id}）"
-        return f"{text.strip()}\n[interrupted]".strip()
 
     def _detect_mode(
         self,
@@ -152,13 +127,6 @@ class StreamingFinalEmitter:
             self.mode = "compare"
             self.buffer = stripped
             return []
-        if self.require_recommend_marker:
-            raise RecoverableAgentError(
-                "recommend_marker_missing",
-                "本轮调用过 retrieve_products，最终回复必须输出 <R>...</R> 推荐块。",
-                raw_output=self.raw_output,
-                details={"candidate_ids": sorted(self.candidate_ids)},
-            )
         self.mode = "text"
         return self._emit_normal_text(self.buffer)
 
@@ -233,7 +201,6 @@ class StreamingFinalEmitter:
             item = self._parse_streaming_item_tag(tag)
             product = self.candidates_by_id[item.product_id]
             self.current_item = item
-            self.visible_products.append(item.product_id)
             self.state = "inside_item"
             return [
                 BlockProductEvent(
@@ -242,6 +209,7 @@ class StreamingFinalEmitter:
                     product_id=item.product_id,
                     product_data=product,
                     group=item.group,
+                    attempt_id=self.attempt_id,
                 )
             ]
         if tag == "<REASON>" and self.state == "inside_item" and self.current_item:
@@ -316,6 +284,7 @@ class StreamingFinalEmitter:
                 message_id=self.message_id,
                 block_id=block_id,
                 content=part,
+                attempt_id=self.attempt_id,
             )
             for part in split_text_delta(text)
         ]

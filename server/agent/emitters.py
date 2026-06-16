@@ -51,6 +51,7 @@ async def events_from_parsed_response(
     candidates_by_id: dict[str, dict],
     *,
     message_id: str,
+    attempt_id: str = "attempt-1",
 ) -> AsyncIterator[
     BlockTextEvent
     | BlockProductEvent
@@ -71,6 +72,7 @@ async def events_from_parsed_response(
                 message_id=message_id,
                 block_id=f"blk-{block_index}",
                 content=recommendation.intro,
+                attempt_id=attempt_id,
             )
             block_index += 1
         for item in recommendation.items:
@@ -82,6 +84,7 @@ async def events_from_parsed_response(
                     product_id=item.product_id,
                     product_data=product,
                     group=item.group,
+                    attempt_id=attempt_id,
                 )
                 block_index += 1
             if item.reason.strip():
@@ -89,6 +92,7 @@ async def events_from_parsed_response(
                     message_id=message_id,
                     block_id=f"blk-{block_index}",
                     content=item.reason,
+                    attempt_id=attempt_id,
                 )
                 block_index += 1
         if recommendation.outro and recommendation.outro.strip():
@@ -96,6 +100,7 @@ async def events_from_parsed_response(
                 message_id=message_id,
                 block_id=f"blk-{block_index}",
                 content=recommendation.outro,
+                attempt_id=attempt_id,
             )
         return
 
@@ -104,10 +109,12 @@ async def events_from_parsed_response(
             message_id=message_id,
             block_id="blk-1",
             payload=parsed_response.compare_payload,
+            attempt_id=attempt_id,
         )
     if parsed_response.clean_text.strip():
         yield BlockTextEvent(
             message_id=message_id,
             block_id="blk-2" if parsed_response.compare_payload else "blk-1",
             content=parsed_response.clean_text,
+            attempt_id=attempt_id,
         )

@@ -24,6 +24,7 @@ class ChatApiServiceTest {
         assertTrue(event is ChatEvent.BlockTextDelta)
         val delta = event as ChatEvent.BlockTextDelta
         assertEquals("asst-1", delta.messageId)
+        assertEquals("attempt-1", delta.attemptId)
         assertEquals("blk-1", delta.blockId)
         assertEquals("适合日常使用", delta.content)
     }
@@ -57,7 +58,9 @@ class ChatApiServiceTest {
         )
 
         assertTrue(event is ChatEvent.BlockProduct)
-        val product = (event as ChatEvent.BlockProduct).product
+        val productEvent = event as ChatEvent.BlockProduct
+        assertEquals("attempt-1", productEvent.attemptId)
+        val product = productEvent.product
         assertEquals("p1", product.productId)
         assertEquals("http://127.0.0.1:8000/assets/p1.jpg", product.imageUrl)
         assertEquals("http://127.0.0.1:8000/api/products/p1", product.detailUrl)

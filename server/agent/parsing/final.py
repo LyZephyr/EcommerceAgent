@@ -22,7 +22,6 @@ from agent.parsing.recommend import (
 def parse_final_response(
     text: str,
     *,
-    require_recommend_marker: bool,
     candidate_ids: set[str],
     candidate_groups: list[dict] | None = None,
 ) -> ParsedFinalResponse:
@@ -50,16 +49,9 @@ def parse_final_response(
             "<R> 和 <C> 不能同时出现在同一条回复中。",
             raw_output=text,
         )
-    if require_recommend_marker and not recommend_matches:
-        raise RecoverableAgentError(
-            "recommend_marker_missing",
-            "本轮调用过 retrieve_products，最终回复必须输出 <R>...</R> 推荐块。",
-            raw_output=text,
-            details={"candidate_ids": sorted(candidate_ids)},
-        )
-
     if recommend_matches:
         recommend_match = recommend_matches[0]
+        ensure_marker_is_first_line(text, recommend_match, "<R>")
         outside_text = text[: recommend_match.start()] + text[recommend_match.end() :]
         if outside_text.strip():
             raise RecoverableAgentError(
@@ -74,13 +66,6 @@ def parse_final_response(
             candidate_ids=candidate_ids,
             candidate_groups=candidate_groups or [],
         )
-        if require_recommend_marker and candidate_ids and not recommendation.items:
-            raise RecoverableAgentError(
-                "recommend_marker_empty",
-                "本轮工具返回了候选商品，<R> 中至少需要包含 1 个推荐商品。",
-                raw_output=text,
-                details={"candidate_ids": sorted(candidate_ids)},
-            )
         clean_text = recommendation_visible_text(recommendation)
         return ParsedFinalResponse(recommendation, None, clean_text)
 

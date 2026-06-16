@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-MAX_TOOL_STEPS = 3
+MAX_TOOL_STEPS = 5
 MAX_RECOVERY_RETRIES = 2
 MAX_TOTAL_RECOVERY_ATTEMPTS = 6
 LLM_TIMEOUT_SECONDS = 60

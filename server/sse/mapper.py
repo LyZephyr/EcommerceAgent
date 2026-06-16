@@ -12,6 +12,9 @@ from agent.events import (
     BlockTextDeltaEvent,
     BlockTextEvent,
     CartEvent,
+    MessageCommitEvent,
+    MessageResetEvent,
+    MessageStartEvent,
     StructuredStatusEvent,
 )
 from catalog.product_presenter import product_card_payload
@@ -23,6 +26,9 @@ AgentEvent = (
     | BlockTextDeltaEvent
     | BlockProductEvent
     | BlockCompareEvent
+    | MessageStartEvent
+    | MessageResetEvent
+    | MessageCommitEvent
     | StructuredStatusEvent
 )
 
@@ -40,6 +46,57 @@ def map_done_event() -> dict[str, str]:
 
 def map_error_event(message: str) -> dict[str, str]:
     return {"event": "error", "data": dump_sse_data({"message": message})}
+
+
+def map_message_start_event(event: MessageStartEvent) -> dict[str, str]:
+    return {
+        "event": "message_start",
+        "data": dump_sse_data(
+            {
+                "message_id": event.message_id,
+                "attempt_id": event.attempt_id,
+                "provisional": event.provisional,
+            }
+        ),
+    }
+
+
+def map_message_reset_event(event: MessageResetEvent) -> dict[str, str]:
+    return {
+        "event": "message_reset",
+        "data": dump_sse_data(
+            {
+                "message_id": event.message_id,
+                "attempt_id": event.attempt_id,
+                "reason": event.reason,
+            }
+        ),
+    }
+
+
+def map_message_commit_event(
+    event: MessageCommitEvent,
+    *,
+    conversation_id: str,
+) -> dict[str, str]:
+    for entry in event.recent_products:
+        card = product_card_from_data(
+            entry["product_data"],
+            group=entry.get("group"),
+        )
+        cart_store.record_recent_product(
+            conversation_id,
+            card.model_dump(exclude_none=True),
+        )
+    return {
+        "event": "message_commit",
+        "data": dump_sse_data(
+            {
+                "message_id": event.message_id,
+                "attempt_id": event.attempt_id,
+            }
+        ),
+    }
 
 
 def map_cart_event(event: CartEvent) -> dict[str, str]:
@@ -67,6 +124,7 @@ def map_block_text_event(event: BlockTextEvent) -> dict[str, str]:
             {
                 "type": "text",
                 "message_id": event.message_id,
+                "attempt_id": event.attempt_id,
                 "block_id": event.block_id,
                 "content": event.content,
             }
@@ -81,6 +139,7 @@ def map_block_text_delta_event(event: BlockTextDeltaEvent) -> dict[str, str]:
             {
                 "type": "text_delta",
                 "message_id": event.message_id,
+                "attempt_id": event.attempt_id,
                 "block_id": event.block_id,
                 "content": event.content,
             }
@@ -95,6 +154,7 @@ def map_block_compare_event(event: BlockCompareEvent) -> dict[str, str]:
             {
                 "type": "compare",
                 "message_id": event.message_id,
+                "attempt_id": event.attempt_id,
                 "block_id": event.block_id,
                 "compare": event.payload,
             }
@@ -111,17 +171,12 @@ def product_card_from_data(product_data: dict, *, group: str | None = None) -> P
 
 def map_block_product_event(
     event: BlockProductEvent,
-    *,
-    conversation_id: str,
 ) -> dict[str, str]:
     card = product_card_from_data(event.product_data, group=event.group)
-    cart_store.record_recent_product(
-        conversation_id,
-        card.model_dump(exclude_none=True),
-    )
     payload: dict[str, Any] = {
         "type": "product",
         "message_id": event.message_id,
+        "attempt_id": event.attempt_id,
         "block_id": event.block_id,
         "product": card.model_dump(exclude_none=True),
     }
@@ -135,6 +190,12 @@ def map_agent_event(
     *,
     conversation_id: str,
 ) -> dict[str, str] | None:
+    if isinstance(event, MessageStartEvent):
+        return map_message_start_event(event)
+    if isinstance(event, MessageResetEvent):
+        return map_message_reset_event(event)
+    if isinstance(event, MessageCommitEvent):
+        return map_message_commit_event(event, conversation_id=conversation_id)
     if isinstance(event, CartEvent):
         return map_cart_event(event)
     if isinstance(event, BlockTextEvent):
@@ -142,7 +203,7 @@ def map_agent_event(
     if isinstance(event, BlockTextDeltaEvent):
         return map_block_text_delta_event(event)
     if isinstance(event, BlockProductEvent):
-        return map_block_product_event(event, conversation_id=conversation_id)
+        return map_block_product_event(event)
     if isinstance(event, BlockCompareEvent):
         return map_block_compare_event(event)
     if isinstance(event, StructuredStatusEvent):

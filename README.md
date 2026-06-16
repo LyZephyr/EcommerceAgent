@@ -1,165 +1,177 @@
-# EcommerceAgent — 电商智能导购 AI Agent
+# EcommerceAgent
 
-基于 RAG 技术的多模态电商智能导购助手，通过自然语言对话帮助用户发现和选购商品。
+基于 RAG 与 ReAct Agent 的电商智能导购系统。用户通过自然语言对话完成商品检索、对比推荐与购物车操作；后端以 MySQL 作为商品权威源、ChromaDB 作为语义检索索引，并通过 SSE 向客户端推送结构化消息块。
+
+> 当前实现为**文本对话**导购。课题规划中的多模态（图片找货等）尚未接入，见 [architecture.md](architecture.md) 扩展点。
+
+## 功能概览
+
+- **语义检索**：向量召回 + 结构化意图过滤（类目、价格、必选/排除属性）
+- **多轮对话**：会话上下文管理，支持追问、对比、场景化组合推荐
+- **购物车闭环**：对话式加购、改量、删除、清空；REST API 与 Agent 工具双通道
+- **流式响应**：SSE 推送文本增量、商品卡片、对比表、购物车快照与进度状态
+- **移动端适配输出**：限制可见正文长度、禁止 Markdown，推荐/对比走结构化 block
+- **数据一致性**：价格、库存、上下架以 MySQL 为准；ChromaDB 后台增量同步
+
+## 技术栈
+
+| 层级 | 技术 |
+|------|------|
+| 后端框架 | FastAPI + Uvicorn |
+| LLM | 火山方舟（OpenAI 兼容 API） |
+| 向量库 | ChromaDB + BAAI/bge-base-zh-v1.5 |
+| 关系库 | MySQL 8 |
+| 客户端 | Android（Kotlin + Jetpack Compose + OkHttp SSE） |
 
 ## 项目结构
 
+```text
+EcommerceAgent/
+├── server/
+│   ├── main.py              # 应用入口与生命周期
+│   ├── config.py            # 环境变量
+│   ├── schemas.py           # API 数据模型
+│   ├── conversation.py      # 内存会话历史
+│   ├── api/                 # HTTP 路由（chat / products / cart）
+│   ├── agent/               # ReAct 主循环、流式解析、提示词
+│   ├── tools/               # Agent 工具（检索、购物车）
+│   ├── sse/mapper.py        # Agent 事件 → SSE 协议
+│   ├── catalog/             # 商品卡片/详情字段派生
+│   ├── retriever.py         # RAG 检索与重排
+│   ├── product_store.py     # MySQL 商品权威源
+│   ├── cart_store.py        # 内存购物车与近期展示商品池
+│   ├── chroma_sync.py       # MySQL → ChromaDB 增量同步
+│   ├── ingest.py            # 从 MySQL 构建 ChromaDB 索引
+│   ├── embedding.py         # Embedding 函数封装
+│   └── tests/
+├── client-android/          # Android 客户端
+├── ecommerce_agent_dataset/ # 商品数据集（JSON + 图片）
+├── docker-compose.yml
+├── .env.example
+├── architecture.md
+└── api_index.md
 ```
-├── server/                     # Python 后端
-│   ├── main.py                 # FastAPI 入口
-│   ├── config.py               # 配置管理
-│   ├── product_store.py        # MySQL 商品权威源
-│   ├── ingest.py               # 数据导入 & 向量化
-│   ├── chroma_sync.py          # MySQL -> ChromaDB 增量同步
-│   ├── retriever.py            # RAG 检索模块
-│   ├── agent.py                # Agent 编排
-│   ├── cart_store.py           # 内存购物车
-│   ├── schemas.py              # 数据模型
-│   └── requirements.txt        # Python 依赖
-├── eval/                       # 离线检索评估
-│   ├── ground_truth.json       # 评估 query 与标注
-│   ├── run_retrieval_eval.py   # 评估脚本
-│   └── reports/                # 评估报告输出
-├── client-android/             # Android 客户端 (Kotlin/Compose)
-├── ecommerce_agent_dataset/    # 商品数据集 (4 类目 × 25 条)
-├── docker-compose.yml          # 开发用 MySQL 容器
-├── PLAN.md                     # 当前系统状态
-├── architecture.md             # 系统架构
-└── api_index.md                # API 索引
-```
+
+## 环境要求
+
+- Python 3.12+
+- Docker（MySQL）
+- 火山方舟 API Key（`ARK_API_KEY`）
+- 首次运行需联网下载 Embedding 模型（国内建议 `HF_ENDPOINT=https://hf-mirror.com`）
 
 ## 快速开始
 
-### 环境要求
-
-- Python 3.10+
-- Docker 与 Docker Compose（仅用于 MySQL）
-- Android Studio (Ladybug+)
-- JDK 11+
-
-### 1. 启动 MySQL
+### 1. 配置环境变量
 
 ```bash
-# 在项目根目录执行
 cp .env.example .env
-# 编辑 .env：填入 ARK_API_KEY；MYSQL_PASSWORD 默认 ecommerce123 即可
-# HF_ENDPOINT 默认使用 hf-mirror.com 下载 embedding 模型；首次 ingest 前请保持 HF_HUB_OFFLINE=0
+# 编辑 .env，填入 ARK_API_KEY 等配置
+```
 
+### 2. 启动 MySQL
+
+```bash
 docker compose up -d
 ```
 
-MySQL 映射到本机 `127.0.0.1:3306`，数据持久化在 Docker 卷 `mysql_data`。
+默认映射 `127.0.0.1:3306`，数据库名 `ecommerce_agent`。
 
-```bash
-# 查看 MySQL 状态
-docker compose ps
-
-# 停止（保留数据）
-docker compose down
-
-# 停止并清空数据库
-docker compose down -v
-```
-
-若 `3306` 端口已被占用，在 `.env` 中设置 `MYSQL_PORT=3307`。
-
-### 2. 启动后端
+### 3. 安装 Python 依赖
 
 ```bash
 cd server
 python -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-
-# 初始化 MySQL 商品权威源
-python product_store.py
-
-# 导入商品向量数据（首次会通过 HF_ENDPOINT 镜像下载 embedding 模型，可能较慢）
-python ingest.py
-
-# 可选：Demo 前手动执行一次 MySQL -> ChromaDB 增量同步
-python chroma_sync.py
-
-# 启动服务（启动时会自动把 ecommerce_agent_dataset/ 幂等加载到 MySQL，并每 3 分钟后台增量同步 ChromaDB）
-uvicorn main:app --host 0.0.0.0 --port 8000
 ```
+
+### 4. 导入数据并构建向量索引
+
+`ingest.py` **从 MySQL 读取上架商品**写入 ChromaDB，不会自动扫描 JSON 目录。全新环境需先 upsert 数据集：
+
+```bash
+cd server
+python ingest.py --dataset-dir ../ecommerce_agent_dataset
+```
+
+说明：
+
+- `--dataset-dir`：先把指定目录 JSON upsert 到 MySQL，再基于 MySQL 构建 Chroma 索引。
+- 不加 `--dataset-dir`：仅读取 MySQL 已有商品（需服务曾启动过并完成 `load_dataset_to_mysql()`，或上一步已导入）。
+- `--upsert`：增量更新 Chroma collection，不清空重建。
+
+### 5. 启动后端
+
+```bash
+cd server
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+启动时会：幂等加载数据集到 MySQL、挂载 `/assets` 静态资源、每 3 分钟后台同步 ChromaDB。
+
+验证：
 
 ```bash
 curl http://127.0.0.1:8000/health
+# {"status":"ok"}
 ```
 
-### 检索评估
+### 6. 运行 Android 客户端（可选）
 
-评估脚本位于 `eval/run_retrieval_eval.py`，默认走与线上一致的检索链路：`parse_intent` → `retrieve(query, top_k, intent)`。
+后端地址在 `client-android/app/build.gradle.kts` 的 `API_BASE_URL` 中配置，**需按你的联调环境修改**：
 
-**前置条件**：已执行 `python ingest.py` 导入向量库。
+```kotlin
+buildConfigField("String", "API_BASE_URL", "\"http://192.168.188.128:8000\"")
+```
+
+| 场景 | 典型地址 |
+|------|----------|
+| 模拟器访问宿主机 | `http://10.0.2.2:8000` |
+| 真机访问局域网后端 | `http://<电脑局域网 IP>:8000` |
+
+客户端在本地生成 `conversation_id`（UUID），每次请求携带；服务端不通过 SSE 回传会话 ID。详见 [client-android/README.md](client-android/README.md)。
+
+## 常用命令
 
 ```bash
-# 在项目根目录执行
+cd server
 
-# 带 LLM 意图解析（默认），报告写入 eval/reports/retrieval_eval_top5_with_intent.json
-server/.venv/bin/python eval/run_retrieval_eval.py
+# 运行测试
+pytest
 
-# 快速抽样（前 10 条，避免全量 LLM 调用）
-server/.venv/bin/python eval/run_retrieval_eval.py --limit 10
+# 手动 ChromaDB 同步
+python chroma_sync.py
 
-# 仅评估纯检索，不含意图解析（对比用）
-server/.venv/bin/python eval/run_retrieval_eval.py --no-intent
+# 持续同步（每 3 分钟）
+python chroma_sync.py --loop
 
-# 指定 Top-K
-server/.venv/bin/python eval/run_retrieval_eval.py --top-k 10
-
-# 离线环境（embedding 模型已缓存时；或在 .env 中设置 HF_HUB_OFFLINE=1）
-server/.venv/bin/python eval/run_retrieval_eval.py
+# 增量更新 Chroma（不清空 collection）
+python ingest.py --upsert
 ```
 
-**输出指标**：Recall@K、MRR、Hit Rate@K、Precision@K。完整报告含逐条 query 的命中详情及解析出的 `intent` 字段。
+## 环境变量
 
-### Android 客户端
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `ARK_API_KEY` | 火山方舟 API Key | （必填） |
+| `ARK_BASE_URL` | LLM API 地址 | `https://ark.cn-beijing.volces.com/api/v3/` |
+| `ARK_MODEL` | 模型端点 ID | 见 `.env.example` |
+| `EMBEDDING_MODEL` | 向量模型 | `BAAI/bge-base-zh-v1.5` |
+| `HF_ENDPOINT` | Hugging Face 镜像 | `https://hf-mirror.com` |
+| `HF_HUB_OFFLINE` | 仅使用本地缓存 | `0` |
+| `TOP_K` | 单次检索返回商品数 | `5` |
+| `CHROMA_COLLECTION_NAME` | Chroma collection 名 | `products` |
+| `MYSQL_*` | MySQL 连接 | 见 `.env.example` |
 
-1. 用 Android Studio 打开 `client-android/` 目录
-2. 修改 API 地址指向后端服务
-3. 运行到模拟器或真机
+## 文档索引
 
-## 技术栈
+- [architecture.md](architecture.md) — 系统架构、Agent 编排、数据流
+- [api_index.md](api_index.md) — HTTP / SSE 接口与数据模型
+- [Task.md](Task.md) — 课题背景与业务场景
 
-| 组件 | 技术选型 |
-|------|----------|
-| 后端框架 | FastAPI |
-| 商品权威源 | MySQL + SQLAlchemy Core + PyMySQL |
-| 向量数据库 | ChromaDB |
-| 索引同步 | FastAPI 后台任务 + MySQL `sync_state` |
-| Embedding | BAAI/bge-base-zh-v1.5 |
-| LLM | Doubao-Seed-2.0-lite |
-| 流式传输 | SSE |
-| Android | Kotlin / Jetpack Compose / Material3 |
+## 设计原则
 
-## 文档
-
-- [当前系统状态](PLAN.md)
-- [系统架构](architecture.md)
-- [API 索引](api_index.md)
-- [需求文档](Task.md)
-
-## Cart Demo Flow
-
-1. Start the FastAPI backend on port `8000`.
-2. Build and run the Android debug app.
-3. Ask for product recommendations, then tap the cart button on a product card.
-4. Use the cart icon or bottom summary strip to open the cart sheet.
-5. Increase, decrease, remove, or clear cart items from the sheet.
-6. Try natural-language operations such as `把第一款加入购物车`, `购物车里有什么`, `把购物车第一个商品数量改成2`, and `删除购物车第一个商品`.
-
-## Cart End-to-End Validation
-
-With the backend running:
-
-```powershell
-python eval/run_cart_e2e.py --base-url http://127.0.0.1:8000
-```
-
-If LLM access is blocked but the backend is running, validate the deterministic HTTP cart path:
-
-```powershell
-python eval/run_cart_e2e.py --base-url http://127.0.0.1:8000 --http-only
-```
+1. **MySQL 为权威源**：价格、库存、上下架不在向量文档中固化，检索与展示时实时补全。
+2. **RAG 防幻觉**：Agent 仅基于工具返回的商品资料回复；推荐/对比经 `<R>` / `<C>` 标记解析为 UI block。
+3. **会话隔离**：购物车与近期展示商品池按 `conversation_id` 隔离；加购仅限本会话已展示商品。
+4. **移动端输出约束**：可见正文 ≤ 120 字、禁止 Markdown；推荐 intro/reason/outro 有独立字数上限。

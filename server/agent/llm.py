@@ -13,12 +13,15 @@ from openai import AsyncOpenAI
 import conversation
 from agent.constants import LLM_TIMEOUT_SECONDS
 from agent.emitters import append_final_response, events_from_parsed_response
-from agent.errors import RecoverableAgentError, RecoveryState
+from agent.errors import AgentRecoveryExhausted, RecoverableAgentError, RecoveryState
 from agent.events import (
     BlockCompareEvent,
     BlockProductEvent,
     BlockTextDeltaEvent,
     BlockTextEvent,
+    MessageCommitEvent,
+    MessageResetEvent,
+    MessageStartEvent,
     StructuredStatusEvent,
 )
 from agent.logging_utils import elapsed_ms
@@ -104,7 +107,6 @@ async def stream_final_response_with_recovery(
     messages: list[dict],
     candidates_by_id: dict[str, dict],
     candidate_groups: list[dict],
-    require_recommend_marker: bool,
     message_id: str,
     recovery: RecoveryState,
     label: str,
@@ -113,9 +115,14 @@ async def stream_final_response_with_recovery(
     | BlockTextDeltaEvent
     | BlockProductEvent
     | BlockCompareEvent
+    | MessageStartEvent
+    | MessageResetEvent
+    | MessageCommitEvent
     | StructuredStatusEvent
 ]:
+    attempt_index = 1
     while True:
+        attempt_id = f"attempt-{attempt_index}"
         try:
             async for event in stream_final_response(
                 client,
@@ -123,15 +130,29 @@ async def stream_final_response_with_recovery(
                 messages=messages,
                 candidates_by_id=candidates_by_id,
                 candidate_groups=candidate_groups,
-                require_recommend_marker=require_recommend_marker,
                 message_id=message_id,
+                attempt_id=attempt_id,
                 label=label,
             ):
                 yield event
             return
         except RecoverableAgentError as exc:
-            feedback = recovery.record(exc, label=label)
+            try:
+                feedback = recovery.record(exc, label=label)
+            except AgentRecoveryExhausted:
+                yield MessageResetEvent(
+                    message_id=message_id,
+                    attempt_id=attempt_id,
+                    reason="error",
+                )
+                raise
+            yield MessageResetEvent(
+                message_id=message_id,
+                attempt_id=attempt_id,
+                reason="retry",
+            )
             messages.append({"role": "system", "content": feedback})
+            attempt_index += 1
 
 
 async def stream_final_response(
@@ -141,27 +162,30 @@ async def stream_final_response(
     messages: list[dict],
     candidates_by_id: dict[str, dict],
     candidate_groups: list[dict],
-    require_recommend_marker: bool,
     message_id: str,
+    attempt_id: str,
     label: str,
 ) -> AsyncIterator[
     BlockTextEvent
     | BlockTextDeltaEvent
     | BlockProductEvent
     | BlockCompareEvent
-    |     StructuredStatusEvent
+    | MessageStartEvent
+    | MessageCommitEvent
+    | StructuredStatusEvent
 ]:
+    yield MessageStartEvent(message_id=message_id, attempt_id=attempt_id)
     yield StructuredStatusEvent(
         phase="streaming",
-        message="正在输出推荐..." if require_recommend_marker else "正在输出回复...",
-        step=4 if require_recommend_marker else None,
-        total_steps=4 if require_recommend_marker else None,
+        message="正在输出回复...",
+        step=None,
+        total_steps=None,
     )
     emitter = StreamingFinalEmitter(
         message_id=message_id,
+        attempt_id=attempt_id,
         candidates_by_id=candidates_by_id,
         candidate_groups=candidate_groups,
-        require_recommend_marker=require_recommend_marker,
     )
     start = time.perf_counter()
     first_chunk_ms: float | None = None
@@ -194,8 +218,17 @@ async def stream_final_response(
                 parsed_response,
                 candidates_by_id,
                 message_id=message_id,
+                attempt_id=attempt_id,
             ):
                 yield event
+        yield MessageCommitEvent(
+            message_id=message_id,
+            attempt_id=attempt_id,
+            recent_products=_recent_products_from_parsed_response(
+                parsed_response,
+                candidates_by_id,
+            ),
+        )
         append_final_response(
             conversation,
             conversation_id,
@@ -258,14 +291,20 @@ async def stream_final_response(
             },
         ) from exc
     finally:
-        if not completed and emitter.has_visible_output:
-            conversation.append(
-                conversation_id,
-                {
-                    "role": "assistant",
-                    "content": emitter.interrupted_history_text(candidates_by_id),
-                },
-            )
         if stream is not None and hasattr(stream, "aclose"):
             with contextlib.suppress(Exception):
                 await stream.aclose()
+
+
+def _recent_products_from_parsed_response(
+    parsed_response,
+    candidates_by_id: dict[str, dict],
+) -> list[dict]:
+    if not parsed_response.recommendation:
+        return []
+    products = []
+    for item in parsed_response.recommendation.items:
+        product_data = candidates_by_id.get(item.product_id)
+        if product_data:
+            products.append({"product_data": product_data, "group": item.group})
+    return products

@@ -11,14 +11,8 @@ from uuid import uuid4
 from openai import AsyncOpenAI
 
 import conversation
-from agent.candidates import (
-    flatten_candidate_groups,
-    format_candidate_groups,
-    format_candidate_groups_compact,
-)
+from agent.candidates import flatten_candidate_groups, format_candidate_groups
 from agent.constants import MAX_TOOL_STEPS
-from agent.emitters import append_final_response, events_from_parsed_response
-from agent.errors import RecoverableAgentError, RecoveryState
 from agent.events import (
     BlockCompareEvent,
     BlockProductEvent,
@@ -27,13 +21,12 @@ from agent.events import (
     CartEvent,
     StructuredStatusEvent,
 )
+from agent.errors import RecoverableAgentError, RecoveryState
 from agent.llm import (
     create_chat_completion,
-    stream_final_response,
     stream_final_response_with_recovery,
 )
 from agent.logging_utils import log_tool_request
-from agent.parsing.final import parse_final_response
 from agent.prompts import SYSTEM_PROMPT
 from agent.tools_helpers import (
     append_skipped_tool_errors,
@@ -91,13 +84,6 @@ async def run_turn(
     while step_index < MAX_TOOL_STEPS:
         label = f"react_step_{step_index + 1}"
         try:
-            if used_retrieve_tool:
-                yield StructuredStatusEvent(
-                    phase="composing",
-                    message="正在整理推荐...",
-                    step=3,
-                    total_steps=4,
-                )
             response = await create_chat_completion(
                 client,
                 label=label,
@@ -109,22 +95,22 @@ async def run_turn(
             assistant_msg = assistant_message_or_raise(response)
 
             if not assistant_msg.tool_calls:
-                parsed_response = parse_final_response(
-                    assistant_msg.content or "",
-                    require_recommend_marker=used_retrieve_tool,
-                    candidate_ids=set(candidates_by_id),
+                if used_retrieve_tool:
+                    yield StructuredStatusEvent(
+                        phase="composing",
+                        message="正在整理推荐...",
+                        step=3,
+                        total_steps=4,
+                    )
+                async for event in stream_final_response_with_recovery(
+                    client,
+                    conversation_id=conversation_id,
+                    messages=messages,
+                    candidates_by_id=candidates_by_id,
                     candidate_groups=candidate_groups,
-                )
-                append_final_response(
-                    conversation,
-                    conversation_id,
-                    parsed_response,
-                    candidates_by_id,
-                )
-                async for event in events_from_parsed_response(
-                    parsed_response,
-                    candidates_by_id,
                     message_id=message_id,
+                    recovery=recovery,
+                    label="final_stream",
                 ):
                     yield event
                 return
@@ -133,7 +119,6 @@ async def run_turn(
             messages.append(tool_call_msg)
             tool_history_messages = []
             tool_failed = False
-            executed_finalizing_tool = False
 
             for tool_call in assistant_msg.tool_calls:
                 try:
@@ -178,11 +163,8 @@ async def run_turn(
                             }
                         )
                         tool_content = format_candidate_groups(current_candidate_groups)
-                        history_content = format_candidate_groups_compact(
-                            current_candidate_groups
-                        )
+                        history_content = tool_content
                     elif is_cart_tool(tool_name):
-                        executed_finalizing_tool = True
                         yield StructuredStatusEvent(
                             phase="cart",
                             message=cart_status(tool_name),
@@ -250,20 +232,6 @@ async def run_turn(
             for history_message in tool_history_messages:
                 conversation.append(conversation_id, history_message)
             recovery.reset()
-            if used_retrieve_tool or executed_finalizing_tool:
-                async for event in stream_final_response_with_recovery(
-                    client,
-                    conversation_id=conversation_id,
-                    messages=messages,
-                    candidates_by_id=candidates_by_id,
-                    candidate_groups=candidate_groups,
-                    require_recommend_marker=used_retrieve_tool,
-                    message_id=message_id,
-                    recovery=recovery,
-                    label="final_stream",
-                ):
-                    yield event
-                return
             step_index += 1
         except RecoverableAgentError as exc:
             feedback = recovery.record(exc, label=label)
@@ -280,7 +248,7 @@ async def run_turn(
                     step=3,
                     total_steps=4,
                 )
-            async for event in stream_final_response(
+            async for event in stream_final_response_with_recovery(
                 client,
                 conversation_id=conversation_id,
                 messages=messages
@@ -292,8 +260,8 @@ async def run_turn(
                 ],
                 candidates_by_id=candidates_by_id,
                 candidate_groups=candidate_groups,
-                require_recommend_marker=used_retrieve_tool,
                 message_id=message_id,
+                recovery=recovery,
                 label=label,
             ):
                 yield event

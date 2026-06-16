@@ -67,6 +67,9 @@ class ChatApiService(
                     when (type) {
                         "status" -> trySend(ChatEvent.StructuredStatus(parseStatus(data)))
                         "cart" -> trySend(ChatEvent.CartUpdated(parseCart(data)))
+                        "message_start" -> trySend(parseMessageStart(data))
+                        "message_reset" -> trySend(parseMessageReset(data))
+                        "message_commit" -> trySend(parseMessageCommit(data))
                         "block" -> parseBlock(data)?.let { trySend(it) }
                         "done" -> {
                             trySend(ChatEvent.Done)
@@ -192,31 +195,61 @@ class ChatApiService(
         val json = JSONObject(data)
         val blockType = json.getString("type")
         val messageId = json.optString("message_id")
+        val attemptId = json.optString("attempt_id", "attempt-1")
         val blockId = json.optString("block_id")
 
         return when (blockType) {
             "text" -> ChatEvent.BlockText(
                 messageId = messageId,
+                attemptId = attemptId,
                 blockId = blockId,
                 content = json.optString("content")
             )
             "text_delta" -> ChatEvent.BlockTextDelta(
                 messageId = messageId,
+                attemptId = attemptId,
                 blockId = blockId,
                 content = json.optString("content")
             )
             "product" -> ChatEvent.BlockProduct(
                 messageId = messageId,
+                attemptId = attemptId,
                 blockId = blockId,
                 product = parseProduct(json.getJSONObject("product"))
             )
             "compare" -> ChatEvent.BlockCompare(
                 messageId = messageId,
+                attemptId = attemptId,
                 blockId = blockId,
                 table = parseCompareTable(json.getJSONObject("compare"))
             )
             else -> null
         }
+    }
+
+    private fun parseMessageStart(data: String): ChatEvent.MessageStart {
+        val json = JSONObject(data)
+        return ChatEvent.MessageStart(
+            messageId = json.getString("message_id"),
+            attemptId = json.getString("attempt_id")
+        )
+    }
+
+    private fun parseMessageReset(data: String): ChatEvent.MessageReset {
+        val json = JSONObject(data)
+        return ChatEvent.MessageReset(
+            messageId = json.getString("message_id"),
+            attemptId = json.getString("attempt_id"),
+            reason = json.optString("reason")
+        )
+    }
+
+    private fun parseMessageCommit(data: String): ChatEvent.MessageCommit {
+        val json = JSONObject(data)
+        return ChatEvent.MessageCommit(
+            messageId = json.getString("message_id"),
+            attemptId = json.getString("attempt_id")
+        )
     }
 
     private fun parseStatus(data: String): StreamingStatus {

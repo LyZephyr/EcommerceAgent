@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 from types import SimpleNamespace
 import sys
@@ -9,11 +10,13 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import agent.loop as agent_loop  # noqa: E402
 from agent import (  # noqa: E402
     AgentRecoveryExhausted,
     BlockProductEvent,
     BlockTextDeltaEvent,
     BlockTextEvent,
+    CartEvent,
     RecoverableAgentError,
     RecoveryState,
     SYSTEM_PROMPT,
@@ -23,6 +26,7 @@ from agent import (  # noqa: E402
     _parse_tool_call,
     _recommendation_history_text,
 )
+from agent.constants import MAX_TOOL_STEPS  # noqa: E402
 
 
 def test_system_prompt_limits_mobile_visible_output() -> None:
@@ -30,19 +34,20 @@ def test_system_prompt_limits_mobile_visible_output() -> None:
     assert "###、**、|、---" in SYSTEM_PROMPT
     assert "120 个中文字符以内" in SYSTEM_PROMPT
     assert "商品标题、价格、品牌、规格、库存、图片和加购入口由客户端商品卡片展示" in SYSTEM_PROMPT
+    assert "同时包含多个购物车操作" in SYSTEM_PROMPT
     assert "<INTRO>" in SYSTEM_PROMPT
     assert '<ITEM id="商品ID">' in SYSTEM_PROMPT
+    assert MAX_TOOL_STEPS == 5
 
 
-def test_parse_final_response_requires_recommend_marker_after_retrieval() -> None:
-    with pytest.raises(RecoverableAgentError) as exc_info:
-        _parse_final_response(
-            "这款商品比较适合你。",
-            require_recommend_marker=True,
-            candidate_ids={"p1"},
-        )
+def test_parse_final_response_accepts_plain_text_without_recommend_marker() -> None:
+    parsed = _parse_final_response(
+        "当前候选商品不符合你的需求，建议放宽条件再试。",
+        candidate_ids={"p1"},
+    )
 
-    assert exc_info.value.error_type == "recommend_marker_missing"
+    assert parsed.recommendation is None
+    assert parsed.clean_text == "当前候选商品不符合你的需求，建议放宽条件再试。"
 
 
 def test_parse_final_response_accepts_valid_recommend_marker() -> None:
@@ -57,7 +62,6 @@ def test_parse_final_response_accepts_valid_recommend_marker() -> None:
 </ITEM>
 <OUTRO>按饮用频率选就好。</OUTRO>
 </R>""",
-        require_recommend_marker=True,
         candidate_ids={"p1", "p2"},
     )
 
@@ -80,7 +84,6 @@ def test_parse_final_response_rejects_visible_markdown() -> None:
 <REASON>**这款**更合适。</REASON>
 </ITEM>
 </R>""",
-            require_recommend_marker=True,
             candidate_ids={"p1"},
         )
 
@@ -96,7 +99,6 @@ def test_parse_final_response_rejects_long_recommendation_text() -> None:
 <REASON>{'这款商品适合日常饮用，口感稳定，规格方便，适合家庭囤货。' * 3}</REASON>
 </ITEM>
 </R>""",
-            require_recommend_marker=True,
             candidate_ids={"p1"},
         )
 
@@ -108,7 +110,6 @@ def test_parse_final_response_rejects_conflicting_markers() -> None:
         _parse_final_response(
             '<R><INTRO>建议。</INTRO><ITEM id="p1"><REASON>理由。</REASON></ITEM></R>'
             '<C>{"products":[],"rows":[]}</C>',
-            require_recommend_marker=True,
             candidate_ids={"p1"},
         )
 
@@ -119,7 +120,6 @@ def test_parse_final_response_rejects_invalid_compare_json() -> None:
     with pytest.raises(RecoverableAgentError) as exc_info:
         _parse_final_response(
             "<C>{bad json}</C>\n对比结论。",
-            require_recommend_marker=False,
             candidate_ids=set(),
         )
 
@@ -137,7 +137,6 @@ def test_parse_final_response_accepts_grouped_recommendation() -> None:
 <REASON>这款轻薄好收纳，适合早晚温差。</REASON>
 </ITEM>
 </R>""",
-        require_recommend_marker=True,
         candidate_ids={"s1", "j1"},
         candidate_groups=[
             {"label": "防晒护肤", "products": [{"product_id": "s1"}]},
@@ -180,7 +179,6 @@ def test_parse_final_response_rejects_invalid_recommendation(body: str, error_ty
     with pytest.raises(RecoverableAgentError) as exc_info:
         _parse_final_response(
             body,
-            require_recommend_marker=True,
             candidate_ids={"p1"},
         )
 
@@ -191,11 +189,10 @@ def test_parse_final_response_rejects_visible_text_outside_recommendation() -> N
     with pytest.raises(RecoverableAgentError) as exc_info:
         _parse_final_response(
             '前言<R><INTRO>建议。</INTRO><ITEM id="p1"><REASON>理由。</REASON></ITEM></R>',
-            require_recommend_marker=True,
             candidate_ids={"p1"},
         )
 
-    assert exc_info.value.error_type == "recommend_marker_visible_text_outside"
+    assert exc_info.value.error_type == "hidden_marker_invalid"
 
 
 def test_events_from_recommendation_keep_block_order() -> None:
@@ -210,7 +207,6 @@ def test_events_from_recommendation_keep_block_order() -> None:
 </ITEM>
 <OUTRO>按饮用频率选就好。</OUTRO>
 </R>""",
-        require_recommend_marker=True,
         candidate_ids={"p1", "p2"},
     )
     candidates = {
@@ -238,7 +234,6 @@ def test_events_from_recommendation_keep_block_order() -> None:
 def test_recommendation_history_contains_product_title_id_and_reason() -> None:
     parsed = _parse_final_response(
         '<R><INTRO>整体建议：选第一款。</INTRO><ITEM id="p1"><REASON>理由短。</REASON></ITEM></R>',
-        require_recommend_marker=True,
         candidate_ids={"p1"},
     )
 
@@ -253,9 +248,9 @@ def test_recommendation_history_contains_product_title_id_and_reason() -> None:
 def test_streaming_recommendation_emits_product_before_reason_delta() -> None:
     emitter = _StreamingFinalEmitter(
         message_id="asst-test",
+        attempt_id="attempt-1",
         candidates_by_id={"p1": _product("p1", "测试牛奶")},
         candidate_groups=[],
-        require_recommend_marker=True,
     )
 
     events = []
@@ -288,9 +283,9 @@ def test_streaming_recommendation_emits_product_before_reason_delta() -> None:
 def test_streaming_recommendation_keeps_unicode_chunks_valid() -> None:
     emitter = _StreamingFinalEmitter(
         message_id="asst-test",
+        attempt_id="attempt-1",
         candidates_by_id={"p1": _product("p1", "测试牛奶")},
         candidate_groups=[],
-        require_recommend_marker=True,
     )
 
     events = emitter.feed(
@@ -335,6 +330,164 @@ def test_recovery_state_allows_two_retries_then_exhausts() -> None:
         state.record(error, label="test")
 
 
+def test_run_turn_continues_after_cart_tool_for_compound_request(monkeypatch) -> None:
+    monkeypatch.setattr(agent_loop, "ARK_API_KEY", "test-key")
+    responses = [
+        _response(
+            _message(
+                tool_calls=[
+                    _tool_call("call-remove", "remove_from_cart", {"cart_position": 1})
+                ]
+            )
+        ),
+        _response(
+            _message(
+                tool_calls=[
+                    _tool_call(
+                        "call-update",
+                        "update_cart_item",
+                        {"cart_position": 1, "quantity": 2},
+                    )
+                ]
+            )
+        ),
+        _response(_message(content="已删除第一件，并把第二件数量改为 2 件。")),
+    ]
+    executed_tools = []
+    final_stream_calls = 0
+
+    async def fake_create_chat_completion(_client, **_kwargs):
+        return responses.pop(0)
+
+    def fake_execute_tool(name, arguments, conversation_id=None):
+        executed_tools.append((name, arguments, conversation_id))
+        return {
+            "success": True,
+            "message": "ok",
+            "cart": {
+                "conversation_id": conversation_id,
+                "items": [],
+                "total_quantity": 0,
+                "total_price": 0.0,
+                "messages": [],
+            },
+        }
+
+    async def fake_stream_final_response_with_recovery(*_args, **_kwargs):
+        nonlocal final_stream_calls
+        final_stream_calls += 1
+        yield BlockTextEvent(
+            message_id="asst-test",
+            block_id="blk-1",
+            content="已删除第一件，并把第二件数量改为 2 件。",
+        )
+
+    monkeypatch.setattr(agent_loop, "create_chat_completion", fake_create_chat_completion)
+    monkeypatch.setattr(agent_loop, "execute_tool", fake_execute_tool)
+    monkeypatch.setattr(
+        agent_loop,
+        "stream_final_response_with_recovery",
+        fake_stream_final_response_with_recovery,
+    )
+
+    events = asyncio.run(
+        _collect_turn_events(
+            agent_loop.run_turn(
+                "compound-cart-test",
+                "帮我移除购物车里的第一件商品，并将第二件商品的数量修改为2",
+            )
+        )
+    )
+
+    assert [name for name, _arguments, _conversation_id in executed_tools] == [
+        "remove_from_cart",
+        "update_cart_item",
+    ]
+    assert not responses
+    assert final_stream_calls == 1
+    assert any(isinstance(event, CartEvent) for event in events)
+    assert any(
+        isinstance(event, BlockTextEvent)
+        and event.content == "已删除第一件，并把第二件数量改为 2 件。"
+        for event in events
+    )
+
+
+def test_run_turn_continues_after_retrieve_tool_before_streaming_final(monkeypatch) -> None:
+    monkeypatch.setattr(agent_loop, "ARK_API_KEY", "test-key")
+    responses = [
+        _response(
+            _message(
+                tool_calls=[
+                    _tool_call(
+                        "call-retrieve",
+                        "retrieve_products",
+                        {"requests": [{"search_query": "牛奶"}]},
+                    )
+                ]
+            )
+        ),
+        _response(
+            _message(tool_calls=[_tool_call("call-cart", "view_cart", {})])
+        ),
+        _response(_message(content="<R></R>")),
+    ]
+    executed_tools = []
+
+    async def fake_create_chat_completion(_client, **_kwargs):
+        return responses.pop(0)
+
+    def fake_execute_tool(name, arguments, conversation_id=None):
+        executed_tools.append((name, arguments, conversation_id))
+        if name == "retrieve_products":
+            return [
+                {
+                    "label": "牛奶",
+                    "search_query": "牛奶",
+                    "products": [_product("p1", "测试牛奶")],
+                }
+            ]
+        return {
+            "success": True,
+            "message": "购物车为空。",
+            "cart": {
+                "conversation_id": conversation_id,
+                "items": [],
+                "total_quantity": 0,
+                "total_price": 0.0,
+                "messages": [],
+            },
+        }
+
+    async def fake_stream_final_response_with_recovery(*_args, **kwargs):
+        assert "require_recommend_marker" not in kwargs
+        yield BlockTextEvent(
+            message_id="asst-test",
+            block_id="blk-1",
+            content="推荐测试牛奶。",
+        )
+
+    monkeypatch.setattr(agent_loop, "create_chat_completion", fake_create_chat_completion)
+    monkeypatch.setattr(agent_loop, "execute_tool", fake_execute_tool)
+    monkeypatch.setattr(
+        agent_loop,
+        "stream_final_response_with_recovery",
+        fake_stream_final_response_with_recovery,
+    )
+
+    asyncio.run(
+        _collect_turn_events(
+            agent_loop.run_turn("retrieve-loop-test", "推荐牛奶，再看看购物车")
+        )
+    )
+
+    assert [name for name, _arguments, _conversation_id in executed_tools] == [
+        "retrieve_products",
+        "view_cart",
+    ]
+    assert not responses
+
+
 async def _collect_events(parsed, candidates):
     return [
         event
@@ -344,6 +497,30 @@ async def _collect_events(parsed, candidates):
             message_id="asst-test",
         )
     ]
+
+
+async def _collect_turn_events(events):
+    return [event async for event in events]
+
+
+def _response(message):
+    return SimpleNamespace(
+        choices=[SimpleNamespace(message=message, finish_reason="stop")]
+    )
+
+
+def _message(*, content=None, tool_calls=None):
+    return SimpleNamespace(content=content, tool_calls=tool_calls)
+
+
+def _tool_call(call_id: str, name: str, arguments: dict):
+    return SimpleNamespace(
+        id=call_id,
+        function=SimpleNamespace(
+            name=name,
+            arguments=json.dumps(arguments, ensure_ascii=False),
+        ),
+    )
 
 
 def _product(product_id: str, title: str) -> dict:

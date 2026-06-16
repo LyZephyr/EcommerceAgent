@@ -8,6 +8,9 @@ from agent.events import (
     BlockTextDeltaEvent,
     BlockTextEvent,
     CartEvent,
+    MessageCommitEvent,
+    MessageResetEvent,
+    MessageStartEvent,
     StructuredStatusEvent,
 )
 from sse.mapper import (
@@ -30,6 +33,7 @@ def test_map_block_text_event() -> None:
     assert payload == {
         "type": "text",
         "message_id": "m1",
+        "attempt_id": "attempt-1",
         "block_id": "blk-1",
         "content": "你好",
     }
@@ -42,10 +46,11 @@ def test_map_block_text_delta_event() -> None:
     assert mapped is not None
     payload = json.loads(mapped["data"])
     assert payload["type"] == "text_delta"
+    assert payload["attempt_id"] == "attempt-1"
     assert payload["content"] == "推"
 
 
-def test_map_block_product_event_records_recent_product(monkeypatch) -> None:
+def test_map_block_product_event_does_not_record_recent_product(monkeypatch) -> None:
     recorded: list[tuple[str, dict]] = []
 
     def fake_record(conversation_id: str, product: dict) -> None:
@@ -72,7 +77,7 @@ def test_map_block_product_event_records_recent_product(monkeypatch) -> None:
         product_data=product_data,
         group="早餐",
     )
-    mapped = map_block_product_event(event, conversation_id="conv-1")
+    mapped = map_block_product_event(event)
 
     assert mapped["event"] == "block"
     payload = json.loads(mapped["data"])
@@ -80,7 +85,54 @@ def test_map_block_product_event_records_recent_product(monkeypatch) -> None:
     assert payload["group"] == "早餐"
     assert payload["product"]["product_id"] == "p1"
     assert payload["product"]["detail_url"] == "/api/products/p1"
-    assert recorded == [("conv-1", payload["product"])]
+    assert recorded == []
+
+
+def test_map_message_lifecycle_events_record_recent_products_on_commit(monkeypatch) -> None:
+    recorded: list[tuple[str, dict]] = []
+
+    def fake_record(conversation_id: str, product: dict) -> None:
+        recorded.append((conversation_id, product))
+
+    monkeypatch.setattr("sse.mapper.cart_store.record_recent_product", fake_record)
+
+    product_data = {
+        "product_id": "p1",
+        "title": "测试牛奶",
+        "brand": "测试品牌",
+        "category": "食品饮料",
+        "sub_category": "牛奶",
+        "price": 12.0,
+        "image_url": "/assets/p1.jpg",
+        "stock": 2,
+        "is_active": True,
+    }
+
+    start = map_agent_event(
+        MessageStartEvent(message_id="m1", attempt_id="attempt-1"),
+        conversation_id="conv-1",
+    )
+    reset = map_agent_event(
+        MessageResetEvent(message_id="m1", attempt_id="attempt-1", reason="retry"),
+        conversation_id="conv-1",
+    )
+    commit = map_agent_event(
+        MessageCommitEvent(
+            message_id="m1",
+            attempt_id="attempt-2",
+            recent_products=[{"product_data": product_data, "group": "早餐"}],
+        ),
+        conversation_id="conv-1",
+    )
+
+    assert start["event"] == "message_start"
+    assert json.loads(start["data"])["provisional"] is True
+    assert reset["event"] == "message_reset"
+    assert json.loads(reset["data"])["reason"] == "retry"
+    assert commit["event"] == "message_commit"
+    assert recorded[0][0] == "conv-1"
+    assert recorded[0][1]["product_id"] == "p1"
+    assert recorded[0][1]["group_label"] == "早餐"
 
 
 def test_map_compare_and_status_events() -> None:

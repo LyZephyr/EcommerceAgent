@@ -41,7 +41,7 @@ def recommend_group_context(
 
 
 def format_candidate_groups(candidate_groups: list[dict]) -> str:
-    """完整格式，用于当前轮次的 LLM 生成。"""
+    """完整格式，用于当前轮次 LLM 生成及会话历史持久化。"""
     groups = [
         {
             "label": group.get("label"),
@@ -64,25 +64,3 @@ def format_candidate_groups(candidate_groups: list[dict]) -> str:
         for group in candidate_groups
     ]
     return json.dumps(groups, ensure_ascii=False, indent=2)
-
-
-def format_candidate_groups_compact(candidate_groups: list[dict]) -> str:
-    """紧凑格式，存入历史上下文，不含完整 document。"""
-    groups = [
-        {
-            "label": group.get("label"),
-            "products": [
-                {
-                    "product_id": p.get("product_id"),
-                    "title": p.get("title"),
-                    "brand": p.get("brand"),
-                    "category": p.get("category"),
-                    "price": p.get("price"),
-                    "stock": p.get("stock"),
-                }
-                for p in group.get("products", [])
-            ],
-        }
-        for group in candidate_groups
-    ]
-    return json.dumps(groups, ensure_ascii=False)

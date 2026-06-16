@@ -23,6 +23,7 @@ class BlockTextEvent:
     message_id: str
     block_id: str
     content: str
+    attempt_id: str = "attempt-1"
 
 
 @dataclass
@@ -30,6 +31,7 @@ class BlockTextDeltaEvent:
     message_id: str
     block_id: str
     content: str
+    attempt_id: str = "attempt-1"
 
 
 @dataclass
@@ -39,6 +41,7 @@ class BlockProductEvent:
     product_id: str
     product_data: dict
     group: str | None = None
+    attempt_id: str = "attempt-1"
 
 
 @dataclass
@@ -46,6 +49,28 @@ class BlockCompareEvent:
     message_id: str
     block_id: str
     payload: dict
+    attempt_id: str = "attempt-1"
+
+
+@dataclass
+class MessageStartEvent:
+    message_id: str
+    attempt_id: str
+    provisional: bool = True
+
+
+@dataclass
+class MessageResetEvent:
+    message_id: str
+    attempt_id: str
+    reason: str
+
+
+@dataclass
+class MessageCommitEvent:
+    message_id: str
+    attempt_id: str
+    recent_products: list[dict]
 
 
 @dataclass

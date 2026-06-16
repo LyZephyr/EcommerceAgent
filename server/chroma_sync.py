@@ -62,11 +62,6 @@ def sync_once() -> dict:
         "upserted": upsert_count,
         "deleted": delete_count,
         "elapsed_seconds": elapsed_seconds,
-        "last_sync_at": (
-            max(product["updated_at"] for product in changed_products).isoformat()
-            if changed_products
-            else last_sync_at.isoformat()
-        ),
         "upserted_product_ids": [product["product_id"] for product in active_products],
         "deleted_product_ids": inactive_product_ids,
     }
@@ -128,12 +123,11 @@ def _log_sync_completed(
     deleted_product_ids: list[str],
 ) -> None:
     logger.info(
-        "ChromaDB 同步完成 scanned=%s upserted=%s deleted=%s elapsed=%ss last_sync_at=%s",
+        "ChromaDB 同步完成 scanned=%s upserted=%s deleted=%s elapsed=%ss",
         stats["scanned"],
         stats["upserted"],
         stats["deleted"],
         stats["elapsed_seconds"],
-        stats["last_sync_at"],
     )
     if upserted_products:
         logger.info(
