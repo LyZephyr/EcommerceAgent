@@ -85,7 +85,12 @@ class ChatViewModel(
                     ) +
                     assistantMessage,
                 isLoading = true,
-                streamingStatus = null
+                streamingStatus = StreamingStatus(
+                    phase = "preparing",
+                    message = "正在处理请求...",
+                    step = null,
+                    totalSteps = null
+                )
             )
         }
 

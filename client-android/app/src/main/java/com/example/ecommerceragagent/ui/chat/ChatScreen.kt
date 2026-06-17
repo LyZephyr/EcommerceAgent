@@ -280,9 +280,6 @@ private fun MessageItem(
         horizontalAlignment = alignment,
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        if (message.blocks.isEmpty() && message.isStreaming) {
-            TypingBubble()
-        }
         message.blocks.forEach { block ->
             when (block) {
                 is MessageBlock.TextBlock -> MessageBubble(
@@ -355,27 +352,6 @@ private fun MessageBubble(
 }
 
 @Composable
-private fun TypingBubble() {
-    Surface(
-        shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-            Text(
-                text = "正在整理推荐...",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
-}
-
-@Composable
 private fun StreamingStatusCard(status: StreamingStatus) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -399,12 +375,6 @@ private fun StreamingStatusCard(status: StreamingStatus) {
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                if (status.step != null && status.totalSteps != null) {
-                    Text(
-                        text = "${status.step}/${status.totalSteps}",
-                        style = MaterialTheme.typography.labelMedium
-                    )
-                }
             }
             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
         }
