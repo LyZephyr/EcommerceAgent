@@ -78,20 +78,21 @@ Agent 执行检索或整理回复时推送。
 {
   "phase": "retrieving",
   "message": "正在检索商品...",
-  "step": 1,
-  "total_steps": 4
+  "step": null,
+  "total_steps": null
 }
 ```
 
 | `phase` 值 | 含义 |
 |------------|------|
-| `retrieving` | 向量检索中（step 1/4） |
-| `filtering` | 库存/价格过滤中（step 2/4） |
-| `composing` | 整理推荐结果（step 3/4） |
+| `retrieving` | 向量检索中 |
+| `filtering` | 库存/价格过滤中 |
+| `composing` | 整理推荐结果 |
 | `streaming` | 流式输出最终回复（可能是普通文本、推荐或对比） |
-| `cart` | 购物车工具执行中（无 step 序号） |
+| `cart` | 购物车工具执行中 |
 
 购物车工具执行时 `message` 为「正在更新购物车...」或「正在读取近期商品...」（`list_recent_products`）。
+服务端保留 `step` / `total_steps` 字段以兼容客户端解析，但当前进度状态统一返回 `null`，不再展示编号。
 
 #### `message_start` — 临时回复开始
 
@@ -522,13 +523,13 @@ Agent 执行购物车工具成功后推送，结构与 [CartSnapshot](#cartsnaps
 
 ```text
 event: status
-data: {"phase":"retrieving","message":"正在检索商品...","step":1,"total_steps":4}
+data: {"phase":"retrieving","message":"正在检索商品...","step":null,"total_steps":null}
 
 event: status
-data: {"phase":"filtering","message":"正在筛选库存和价格...","step":2,"total_steps":4}
+data: {"phase":"filtering","message":"正在筛选库存和价格...","step":null,"total_steps":null}
 
 event: status
-data: {"phase":"composing","message":"正在整理推荐...","step":3,"total_steps":4}
+data: {"phase":"composing","message":"正在整理推荐...","step":null,"total_steps":null}
 
 event: status
 data: {"phase":"streaming","message":"正在输出回复...","step":null,"total_steps":null}

@@ -148,14 +148,15 @@ def test_map_compare_and_status_events() -> None:
         StructuredStatusEvent(
             phase="retrieving",
             message="正在检索商品...",
-            step=1,
-            total_steps=4,
         ),
         conversation_id="conv-1",
     )
 
     assert json.loads(compare["data"])["type"] == "compare"
-    assert json.loads(status["data"])["phase"] == "retrieving"
+    status_data = json.loads(status["data"])
+    assert status_data["phase"] == "retrieving"
+    assert status_data["step"] is None
+    assert status_data["total_steps"] is None
 
 
 def test_map_cart_and_terminal_events() -> None:

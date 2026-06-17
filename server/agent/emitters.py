@@ -62,8 +62,6 @@ async def events_from_parsed_response(
         yield StructuredStatusEvent(
             phase="streaming",
             message="正在输出推荐...",
-            step=4,
-            total_steps=4,
         )
         block_index = 1
         recommendation = parsed_response.recommendation

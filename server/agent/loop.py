@@ -99,8 +99,6 @@ async def run_turn(
                     yield StructuredStatusEvent(
                         phase="composing",
                         message="正在整理推荐...",
-                        step=3,
-                        total_steps=4,
                     )
                 async for event in stream_final_response_with_recovery(
                     client,
@@ -130,8 +128,6 @@ async def run_turn(
                         yield StructuredStatusEvent(
                             phase="retrieving",
                             message="正在检索商品...",
-                            step=1,
-                            total_steps=4,
                         )
                         try:
                             current_candidate_groups = execute_tool(tool_name, arguments)
@@ -144,8 +140,6 @@ async def run_turn(
                         yield StructuredStatusEvent(
                             phase="filtering",
                             message="正在筛选库存和价格...",
-                            step=2,
-                            total_steps=4,
                         )
                         log_tool_result(
                             tool_call.id,
@@ -245,8 +239,6 @@ async def run_turn(
                 yield StructuredStatusEvent(
                     phase="composing",
                     message="正在整理推荐...",
-                    step=3,
-                    total_steps=4,
                 )
             async for event in stream_final_response_with_recovery(
                 client,
