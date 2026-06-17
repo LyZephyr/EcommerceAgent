@@ -29,17 +29,27 @@ import org.json.JSONObject
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
+interface ChatService {
+    fun streamChat(message: String, conversationId: String?): Flow<ChatEvent>
+    suspend fun getCart(conversationId: String): Cart
+    suspend fun getProductDetail(productId: String): ProductDetail
+    suspend fun addCartItem(conversationId: String, productId: String, quantity: Int = 1): Cart
+    suspend fun updateCartItem(conversationId: String, productId: String, quantity: Int): Cart
+    suspend fun removeCartItem(conversationId: String, productId: String): Cart
+    suspend fun clearCart(conversationId: String): Cart
+}
+
 class ChatApiService(
     private val baseUrl: String = BuildConfig.API_BASE_URL,
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.SECONDS)
         .build()
-) {
+) : ChatService {
     private val eventSourceFactory = EventSources.createFactory(client)
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 
-    fun streamChat(message: String, conversationId: String?): Flow<ChatEvent> = callbackFlow {
+    override fun streamChat(message: String, conversationId: String?): Flow<ChatEvent> = callbackFlow {
         val body = JSONObject()
             .put("message", message)
             .apply {
@@ -102,7 +112,7 @@ class ChatApiService(
         awaitClose { eventSource.cancel() }
     }
 
-    suspend fun getCart(conversationId: String): Cart {
+    override suspend fun getCart(conversationId: String): Cart {
         val request = Request.Builder()
             .url("${apiBase()}/api/cart?conversation_id=${urlEncode(conversationId)}")
             .get()
@@ -110,7 +120,7 @@ class ChatApiService(
         return executeCartRequest(request)
     }
 
-    suspend fun getProductDetail(productId: String): ProductDetail = withContext(Dispatchers.IO) {
+    override suspend fun getProductDetail(productId: String): ProductDetail = withContext(Dispatchers.IO) {
         val request = Request.Builder()
             .url("${apiBase()}/api/products/${urlEncode(productId)}")
             .get()
@@ -125,10 +135,10 @@ class ChatApiService(
         }
     }
 
-    suspend fun addCartItem(
+    override suspend fun addCartItem(
         conversationId: String,
         productId: String,
-        quantity: Int = 1
+        quantity: Int
     ): Cart {
         val body = JSONObject()
             .put("conversation_id", conversationId)
@@ -144,7 +154,7 @@ class ChatApiService(
         return executeCartRequest(request)
     }
 
-    suspend fun updateCartItem(
+    override suspend fun updateCartItem(
         conversationId: String,
         productId: String,
         quantity: Int
@@ -162,7 +172,7 @@ class ChatApiService(
         return executeCartRequest(request)
     }
 
-    suspend fun removeCartItem(conversationId: String, productId: String): Cart {
+    override suspend fun removeCartItem(conversationId: String, productId: String): Cart {
         val request = Request.Builder()
             .url(
                 "${apiBase()}/api/cart/items/${urlEncode(productId)}" +
@@ -173,7 +183,7 @@ class ChatApiService(
         return executeCartRequest(request)
     }
 
-    suspend fun clearCart(conversationId: String): Cart {
+    override suspend fun clearCart(conversationId: String): Cart {
         val request = Request.Builder()
             .url("${apiBase()}/api/cart?conversation_id=${urlEncode(conversationId)}")
             .delete()
@@ -227,7 +237,7 @@ class ChatApiService(
         }
     }
 
-    private fun parseMessageStart(data: String): ChatEvent.MessageStart {
+    internal fun parseMessageStart(data: String): ChatEvent.MessageStart {
         val json = JSONObject(data)
         return ChatEvent.MessageStart(
             messageId = json.getString("message_id"),
@@ -235,7 +245,7 @@ class ChatApiService(
         )
     }
 
-    private fun parseMessageReset(data: String): ChatEvent.MessageReset {
+    internal fun parseMessageReset(data: String): ChatEvent.MessageReset {
         val json = JSONObject(data)
         return ChatEvent.MessageReset(
             messageId = json.getString("message_id"),
@@ -244,7 +254,7 @@ class ChatApiService(
         )
     }
 
-    private fun parseMessageCommit(data: String): ChatEvent.MessageCommit {
+    internal fun parseMessageCommit(data: String): ChatEvent.MessageCommit {
         val json = JSONObject(data)
         return ChatEvent.MessageCommit(
             messageId = json.getString("message_id"),

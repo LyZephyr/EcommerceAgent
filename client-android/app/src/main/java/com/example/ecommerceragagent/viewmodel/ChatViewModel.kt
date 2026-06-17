@@ -4,8 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.ecommerceragagent.data.api.ChatApiService
 import com.example.ecommerceragagent.data.api.ChatEvent
+import com.example.ecommerceragagent.data.api.ChatService
 import com.example.ecommerceragagent.data.model.Cart
-import com.example.ecommerceragagent.data.model.CompareTable
 import com.example.ecommerceragagent.data.model.Message
 import com.example.ecommerceragagent.data.model.MessageBlock
 import com.example.ecommerceragagent.data.model.MessageRole
@@ -44,7 +44,7 @@ data class ChatUiState(
 )
 
 class ChatViewModel(
-    private val apiService: ChatApiService = ChatApiService()
+    private val apiService: ChatService = ChatApiService()
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(ChatUiState())
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
@@ -52,6 +52,8 @@ class ChatViewModel(
     private var activeJob: Job? = null
     private var activeAssistantMessageId: String? = null
     private var activeAttemptId: String? = null
+    private var activeAttemptCommitted: Boolean = false
+    private val pendingBlocks = mutableMapOf<AttemptKey, MutableList<ChatEvent>>()
 
     fun sendMessage(text: String) {
         val trimmed = text.trim()
@@ -66,6 +68,8 @@ class ChatViewModel(
         )
         activeAssistantMessageId = assistantMessage.id
         activeAttemptId = null
+        activeAttemptCommitted = false
+        pendingBlocks.clear()
 
         _uiState.update { state ->
             state.copy(
@@ -103,30 +107,10 @@ class ChatViewModel(
                         messageId = event.messageId,
                         attemptId = event.attemptId
                     )
-                    is ChatEvent.BlockText -> appendTextBlock(
-                        event.messageId,
-                        event.attemptId,
-                        event.blockId,
-                        event.content
-                    )
-                    is ChatEvent.BlockTextDelta -> appendTextDelta(
-                        event.messageId,
-                        event.attemptId,
-                        event.blockId,
-                        event.content
-                    )
-                    is ChatEvent.BlockProduct -> appendProductBlock(
-                        event.messageId,
-                        event.attemptId,
-                        event.blockId,
-                        event.product
-                    )
-                    is ChatEvent.BlockCompare -> appendCompareBlock(
-                        event.messageId,
-                        event.attemptId,
-                        event.blockId,
-                        event.table
-                    )
+                    is ChatEvent.BlockText -> handleBlock(event)
+                    is ChatEvent.BlockTextDelta -> handleBlock(event)
+                    is ChatEvent.BlockProduct -> handleBlock(event)
+                    is ChatEvent.BlockCompare -> handleBlock(event)
                     ChatEvent.Done -> finishStreaming(activeAssistantMessageId ?: assistantMessage.id)
                     is ChatEvent.Error -> showError(
                         activeAssistantMessageId ?: assistantMessage.id,
@@ -235,6 +219,8 @@ class ChatViewModel(
         activeJob = null
         activeAssistantMessageId = null
         activeAttemptId = null
+        activeAttemptCommitted = false
+        pendingBlocks.clear()
         _uiState.update { state ->
             state.copy(
                 messages = state.messages.map { message ->
@@ -284,6 +270,7 @@ class ChatViewModel(
     ) {
         activeAssistantMessageId = messageId
         activeAttemptId = attemptId
+        activeAttemptCommitted = false
         _uiState.update { state ->
             state.copy(
                 messages = state.messages.map { message ->
@@ -301,12 +288,16 @@ class ChatViewModel(
                 }
             )
         }
+        val pending = pendingBlocks.remove(AttemptKey(messageId, attemptId)).orEmpty()
+        pending.forEach { applyBlock(it, messageId) }
     }
 
     private fun handleMessageReset(messageId: String, attemptId: String) {
         if (!isCurrentAttempt(messageId, attemptId)) {
             return
         }
+        activeAttemptCommitted = false
+        pendingBlocks.remove(AttemptKey(messageId, attemptId))
         updateMessage(messageId) { message ->
             message.copy(
                 blocks = emptyList(),
@@ -321,91 +312,80 @@ class ChatViewModel(
         if (!isCurrentAttempt(messageId, attemptId)) {
             return
         }
+        activeAttemptCommitted = true
+        pendingBlocks.remove(AttemptKey(messageId, attemptId))
         updateMessage(messageId) { message ->
             message.copy(isStreaming = false)
         }
     }
 
-    private fun appendTextBlock(
-        messageId: String,
-        attemptId: String,
-        blockId: String,
-        content: String
-    ) {
-        if (!isCurrentAttempt(messageId, attemptId)) {
-            return
-        }
-        updateMessage(messageId) { message ->
-            message.copy(
-                blocks = message.blocks.replaceOrAppendBlock(blockId) {
-                    MessageBlock.TextBlock(id = blockId, content = content)
-                }
-            )
-        }
-        clearStreamingStatus()
-    }
-
-    private fun appendTextDelta(
-        messageId: String,
-        attemptId: String,
-        blockId: String,
-        token: String
-    ) {
-        if (!isCurrentAttempt(messageId, attemptId)) {
-            return
-        }
-        updateMessage(messageId) { message ->
-            val index = message.blocks.indexOfFirst { it.id == blockId }
-            val blocks = if (index >= 0) {
-                message.blocks.mapIndexed { blockIndex, block ->
-                    if (blockIndex == index && block is MessageBlock.TextBlock) {
-                        block.copy(content = block.content + token)
-                    } else {
-                        block
-                    }
-                }
-            } else {
-                message.blocks + MessageBlock.TextBlock(id = blockId, content = token)
+    private fun handleBlock(event: ChatEvent) {
+        val messageId = event.messageId()
+        val attemptId = event.attemptId()
+        val targetMessageId = currentTargetForBlock(messageId, attemptId)
+        if (targetMessageId == null) {
+            if (activeAttemptId == null && messageId.isNotBlank()) {
+                pendingBlocks.getOrPut(AttemptKey(messageId, attemptId)) { mutableListOf() }
+                    .add(event)
             }
-            message.copy(blocks = blocks)
-        }
-        clearStreamingStatus()
-    }
-
-    private fun appendProductBlock(
-        messageId: String,
-        attemptId: String,
-        blockId: String,
-        product: Product
-    ) {
-        if (!isCurrentAttempt(messageId, attemptId)) {
             return
         }
-        updateMessage(messageId) { message ->
-            message.copy(
-                blocks = message.blocks.replaceOrAppendBlock(blockId) {
-                    MessageBlock.ProductBlock(id = blockId, product = product)
-                }
-            )
-        }
-        clearStreamingStatus()
-    }
-
-    private fun appendCompareBlock(
-        messageId: String,
-        attemptId: String,
-        blockId: String,
-        table: CompareTable
-    ) {
-        if (!isCurrentAttempt(messageId, attemptId)) {
+        if (activeAttemptCommitted) {
             return
         }
-        updateMessage(messageId) { message ->
-            message.copy(
-                blocks = message.blocks.replaceOrAppendBlock(blockId) {
-                    MessageBlock.CompareBlock(id = blockId, table = table)
+        applyBlock(event, targetMessageId)
+    }
+
+    private fun applyBlock(event: ChatEvent, targetMessageId: String) {
+        when (event) {
+            is ChatEvent.BlockText -> {
+                updateMessage(targetMessageId) { message ->
+                    message.copy(
+                        blocks = message.blocks.replaceOrAppendBlock(event.blockId) {
+                            MessageBlock.TextBlock(id = event.blockId, content = event.content)
+                        }
+                    )
                 }
-            )
+            }
+            is ChatEvent.BlockTextDelta -> {
+                updateMessage(targetMessageId) { message ->
+                    val index = message.blocks.indexOfFirst { it.id == event.blockId }
+                    val blocks = if (index >= 0) {
+                        message.blocks.mapIndexed { blockIndex, block ->
+                            if (blockIndex == index && block is MessageBlock.TextBlock) {
+                                block.copy(content = block.content + event.content)
+                            } else {
+                                block
+                            }
+                        }
+                    } else {
+                        message.blocks + MessageBlock.TextBlock(
+                            id = event.blockId,
+                            content = event.content
+                        )
+                    }
+                    message.copy(blocks = blocks)
+                }
+            }
+            is ChatEvent.BlockProduct -> {
+                updateMessage(targetMessageId) { message ->
+                    message.copy(
+                        blocks = message.blocks.replaceOrAppendBlock(event.blockId) {
+                            MessageBlock.ProductBlock(id = event.blockId, product = event.product)
+                        }
+                    )
+                }
+            }
+            is ChatEvent.BlockCompare -> {
+                updateMessage(targetMessageId) { message ->
+                    message.copy(
+                        blocks = message.blocks.replaceOrAppendBlock(event.blockId) {
+                            MessageBlock.CompareBlock(id = event.blockId, table = event.table)
+                        }
+                    )
+                }
+            }
+            else -> return
         }
         clearStreamingStatus()
     }
@@ -421,9 +401,19 @@ class ChatViewModel(
     }
 
     private fun finishStreaming(messageId: String) {
+        if (activeAttemptId == null && pendingBlocks.size == 1) {
+            val key = pendingBlocks.keys.single()
+            handleMessageStart(
+                previousMessageId = messageId,
+                messageId = key.messageId,
+                attemptId = key.attemptId
+            )
+        }
         activeJob = null
         activeAssistantMessageId = null
         activeAttemptId = null
+        activeAttemptCommitted = false
+        pendingBlocks.clear()
         _uiState.update { state ->
             state.copy(
                 messages = state.messages.map { message ->
@@ -443,6 +433,8 @@ class ChatViewModel(
         activeJob = null
         activeAssistantMessageId = null
         activeAttemptId = null
+        activeAttemptCommitted = false
+        pendingBlocks.clear()
         _uiState.update { state ->
             state.copy(
                 messages = state.messages.map { message ->
@@ -485,6 +477,43 @@ class ChatViewModel(
         return activeAssistantMessageId == messageId && activeAttemptId == attemptId
     }
 
+    private fun currentTargetForBlock(messageId: String, attemptId: String): String? {
+        val activeMessageId = activeAssistantMessageId ?: return null
+        val currentAttemptId = activeAttemptId
+        if (currentAttemptId == null) {
+            if (messageId.isBlank()) {
+                activeAttemptId = attemptId
+                return activeMessageId
+            }
+            return null
+        }
+        return if (activeMessageId == messageId && currentAttemptId == attemptId) {
+            activeMessageId
+        } else {
+            null
+        }
+    }
+
+    private fun ChatEvent.messageId(): String {
+        return when (this) {
+            is ChatEvent.BlockText -> messageId
+            is ChatEvent.BlockTextDelta -> messageId
+            is ChatEvent.BlockProduct -> messageId
+            is ChatEvent.BlockCompare -> messageId
+            else -> ""
+        }
+    }
+
+    private fun ChatEvent.attemptId(): String {
+        return when (this) {
+            is ChatEvent.BlockText -> attemptId
+            is ChatEvent.BlockTextDelta -> attemptId
+            is ChatEvent.BlockProduct -> attemptId
+            is ChatEvent.BlockCompare -> attemptId
+            else -> ""
+        }
+    }
+
     private fun List<MessageBlock>.replaceOrAppendBlock(
         blockId: String,
         create: () -> MessageBlock
@@ -496,4 +525,6 @@ class ChatViewModel(
             this + create()
         }
     }
+
+    private data class AttemptKey(val messageId: String, val attemptId: String)
 }

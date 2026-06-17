@@ -30,6 +30,63 @@ class ChatApiServiceTest {
     }
 
     @Test
+    fun parseBlock_usesPayloadAttemptIdWhenPresent() {
+        val event = service.parseBlock(
+            """
+            {
+              "type": "text_delta",
+              "message_id": "asst-1",
+              "attempt_id": "attempt-2",
+              "block_id": "blk-1",
+              "content": "next"
+            }
+            """.trimIndent()
+        )
+
+        assertTrue(event is ChatEvent.BlockTextDelta)
+        val delta = event as ChatEvent.BlockTextDelta
+        assertEquals("attempt-2", delta.attemptId)
+    }
+
+    @Test
+    fun parseMessageLifecycleEvents() {
+        val start = service.parseMessageStart(
+            """
+            {
+              "message_id": "asst-1",
+              "attempt_id": "attempt-1",
+              "provisional": true
+            }
+            """.trimIndent()
+        )
+        val reset = service.parseMessageReset(
+            """
+            {
+              "message_id": "asst-1",
+              "attempt_id": "attempt-1",
+              "reason": "retry"
+            }
+            """.trimIndent()
+        )
+        val commit = service.parseMessageCommit(
+            """
+            {
+              "message_id": "asst-1",
+              "attempt_id": "attempt-2"
+            }
+            """.trimIndent()
+        )
+
+        assertEquals("asst-1", start.messageId)
+        assertEquals("attempt-1", start.attemptId)
+        assertEquals("asst-1", reset.messageId)
+        assertEquals("attempt-1", reset.attemptId)
+        assertEquals("retry", reset.reason)
+        assertEquals("asst-1", commit.messageId)
+        assertEquals("attempt-2", commit.attemptId)
+    }
+
+    @Test
     fun parseBlock_readsExpandedProductFields() {
         val event = service.parseBlock(
             """
