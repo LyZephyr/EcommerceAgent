@@ -1,78 +1,169 @@
-# API 参考
+# API Index
 
-Base URL 默认为 `http://127.0.0.1:8000`（Android 客户端在 `app/build.gradle.kts` 的 `API_BASE_URL` 中单独配置）。除 SSE 聊天接口外，其余均为标准 JSON REST API。
+本文档索引当前项目的 HTTP API、SSE 事件、数据结构、Agent 工具和核心代码接口。
 
-## 目录
+## HTTP API
 
-- [健康检查](#健康检查)
-- [聊天 SSE](#聊天-sse)
-- [商品详情](#商品详情)
-- [购物车](#购物车)
-- [静态资源](#静态资源)
-- [数据模型](#数据模型)
-- [Agent 工具](#agent-工具)
-- [错误说明](#错误说明)
+服务入口：`server/main.py`
 
-## 会话 ID 约定
-
-- 客户端（Android）在本地生成 `conversation_id`（UUID），聊天与购物车请求均携带。
-- 服务端 `get_or_create_id()` 接受客户端传入的 ID；若该 ID 尚无历史，则创建空会话。
-- **SSE 流不会回传** `conversation_id`；客户端需自行持久化。
-- 服务端会话历史、购物车、近期展示商品池均按此 ID 隔离，**进程内存存储**，重启后丢失。
-
----
-
-## 健康检查
+默认本地地址示例：`http://127.0.0.1:8000`
 
 ### `GET /health`
 
-服务存活探针。
+健康检查。
 
-**响应 200**
+响应：
 
 ```json
 {"status": "ok"}
 ```
 
----
-
-## 聊天 SSE
-
 ### `POST /api/chat`
 
-发起一轮对话，响应为 **Server-Sent Events** 流（`text/event-stream`）。
+聊天接口，返回 Server-Sent Events。
 
-**请求体**
+请求模型：`schemas.ChatRequest`
 
 | 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `message` | string | 是 | 用户消息，至少 1 个字符 |
-| `conversation_id` | string | 否 | 会话 ID；省略则服务端生成新 ID |
+| --- | --- | --- | --- |
+| `message` | `string` | 是 | 用户消息，最小长度 1 |
+| `conversation_id` | `string | null` | 否 | 会话 ID；为空时服务端会创建内存会话，但当前 SSE 不回传新 ID |
 
-**请求示例**
+请求示例：
 
 ```json
 {
-  "message": "推荐一款适合油皮的洗面奶",
-  "conversation_id": "a1b2c3d4e5f6"
+  "conversation_id": "demo",
+  "message": "推荐几款适合早餐的咖啡"
 }
 ```
 
-**curl 示例**
+响应：`text/event-stream`
 
-```bash
-curl -N -X POST http://127.0.0.1:8000/api/chat \
-  -H "Content-Type: application/json" \
-  -d '{"message":"200元以下的蓝牙耳机有哪些？"}'
+可能事件见 [SSE 事件](#sse-事件)。
+
+### `GET /api/products/{product_id}`
+
+读取商品详情。
+
+响应模型：`schemas.ProductDetail`
+
+错误：
+
+| 状态码 | 条件 | 响应 detail |
+| --- | --- | --- |
+| `404` | 商品不存在 | `商品不存在。` |
+
+### `GET /api/cart`
+
+读取购物车快照。
+
+查询参数：
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `conversation_id` | `string | null` | 否 | 会话 ID；为空时创建新内存会话 |
+
+响应模型：`schemas.CartSnapshot`
+
+### `POST /api/cart/items`
+
+向购物车加商品。
+
+请求模型：`schemas.AddCartItemRequest`
+
+| 字段 | 类型 | 必填 | 默认 | 说明 |
+| --- | --- | --- | --- | --- |
+| `conversation_id` | `string | null` | 否 | `null` | 会话 ID |
+| `product_id` | `string` | 是 | 无 | 商品 ID |
+| `quantity` | `integer` | 否 | `1` | 加购数量，最小 1 |
+
+响应模型：`schemas.CartSnapshot`
+
+业务约束：
+
+- 商品必须在当前会话近期展示商品池中。
+- 商品必须存在、上架且库存大于 0。
+- 购物车中该商品最终数量不能超过库存。
+
+错误：
+
+| 状态码 | 条件 |
+| --- | --- |
+| `404` | 商品不存在，或商品不在当前会话近期展示商品池中 |
+| `409` | 商品下架或库存不足 |
+| `422` | 数量小于 1 |
+
+### `PATCH /api/cart/items/{product_id}`
+
+修改购物车商品数量。
+
+请求模型：`schemas.UpdateCartItemRequest`
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `conversation_id` | `string | null` | 否 | 会话 ID |
+| `quantity` | `integer` | 是 | 目标数量，最小 1 |
+
+响应模型：`schemas.CartSnapshot`
+
+错误：
+
+| 状态码 | 条件 |
+| --- | --- |
+| `404` | 购物车中不存在该商品 |
+| `409` | 商品下架或库存不足 |
+| `422` | 数量小于 1 |
+
+### `DELETE /api/cart/items/{product_id}`
+
+删除购物车商品。
+
+查询参数：
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `conversation_id` | `string | null` | 否 | 会话 ID |
+
+响应模型：`schemas.CartSnapshot`
+
+错误：
+
+| 状态码 | 条件 |
+| --- | --- |
+| `404` | 购物车中不存在该商品 |
+
+### `DELETE /api/cart`
+
+清空购物车。
+
+查询参数：
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `conversation_id` | `string | null` | 否 | 会话 ID |
+
+响应模型：`schemas.CartSnapshot`
+
+### `GET /assets/{path}`
+
+静态资源接口，由 `StaticFiles(directory=DATASET_DIR)` 挂载。
+
+商品图片示例：
+
+```text
+/assets/food/images/p_food_001_live.jpg
 ```
 
-### SSE 事件类型
+## SSE 事件
 
-每条 SSE 消息包含 `event` 与 `data` 字段。`data` 为 JSON 字符串。
+SSE 映射位置：`server/sse/mapper.py`
 
-#### `status` — 进度状态
+每个事件由 `event` 和 JSON 字符串 `data` 组成。
 
-Agent 执行检索或整理回复时推送。
+### `status`
+
+结构化进度。
 
 ```json
 {
@@ -83,127 +174,127 @@ Agent 执行检索或整理回复时推送。
 }
 ```
 
-| `phase` 值 | 含义 |
-|------------|------|
-| `retrieving` | 向量检索中 |
-| `filtering` | 库存/价格过滤中 |
-| `composing` | 整理推荐结果 |
-| `streaming` | 流式输出最终回复（可能是普通文本、推荐或对比） |
-| `cart` | 购物车工具执行中 |
+已使用的 phase 包括：
 
-购物车工具执行时 `message` 为「正在更新购物车...」或「正在读取近期商品...」（`list_recent_products`）。
-服务端保留 `step` / `total_steps` 字段以兼容客户端解析，但当前进度状态统一返回 `null`，不再展示编号。
+- `retrieving`
+- `filtering`
+- `cart`
+- `composing`
+- `streaming`
 
-#### `message_start` — 临时回复开始
+Android 初始本地状态还使用 `preparing`。
 
-服务端开始一次最终回复尝试时推送。客户端应按 `message_id` 创建或清空临时消息，并只接收相同 `attempt_id` 的后续 `block`。
+### `message_start`
+
+一条 assistant 消息开始。
 
 ```json
 {
-  "message_id": "asst-abc123",
+  "message_id": "asst-...",
   "attempt_id": "attempt-1",
   "provisional": true
 }
 ```
 
-#### `message_reset` — 临时回复回滚
+### `message_reset`
 
-当前尝试的模型输出解析失败、需要重试或终止时推送。客户端应清空该 `message_id` 已展示的临时内容。
+当前 attempt 失败并清空重试。
 
 ```json
 {
-  "message_id": "asst-abc123",
+  "message_id": "asst-...",
   "attempt_id": "attempt-1",
   "reason": "retry"
 }
 ```
 
-#### `message_commit` — 临时回复提交
+`reason` 可能是 `retry` 或 `error`。
 
-最终回复解析通过后推送。客户端应将该 `message_id` 的临时内容标记为正式内容；服务端也会在此时把已提交的商品卡片写入近期展示商品池。
+### `message_commit`
+
+assistant 消息成功提交。
 
 ```json
 {
-  "message_id": "asst-abc123",
+  "message_id": "asst-...",
   "attempt_id": "attempt-2"
 }
 ```
 
-#### `block` — 消息内容块
+服务端在处理该事件时会把本次成功推荐的商品记录到当前会话近期展示商品池。
 
-`data.type` 区分块类型：
+### `block`
 
-**`text`** — 完整文本块
+消息内容块。`data.type` 决定具体 payload。
 
-```json
-{
-  "type": "text",
-  "message_id": "asst-abc123",
-  "attempt_id": "attempt-1",
-  "block_id": "blk-001",
-  "content": "你更看重控油还是保湿？"
-}
-```
+#### `type = "text_delta"`
 
-**`text_delta`** — 流式文本增量
+流式文本增量。
 
 ```json
 {
   "type": "text_delta",
-  "message_id": "asst-abc123",
+  "message_id": "asst-...",
   "attempt_id": "attempt-1",
-  "block_id": "blk-002",
-  "content": "推荐"
+  "block_id": "blk-1",
+  "content": "推"
 }
 ```
 
-**`product`** — 商品卡片
+#### `type = "text"`
+
+完整文本块。
+
+```json
+{
+  "type": "text",
+  "message_id": "asst-...",
+  "attempt_id": "attempt-1",
+  "block_id": "blk-1",
+  "content": "你更看重控油、保湿，还是温和不刺激？"
+}
+```
+
+#### `type = "product"`
+
+商品卡片块。
 
 ```json
 {
   "type": "product",
-  "message_id": "asst-abc123",
+  "message_id": "asst-...",
   "attempt_id": "attempt-1",
-  "block_id": "blk-003",
-  "group": "防晒护肤",
+  "block_id": "blk-2",
+  "group": "早餐",
   "product": {
-    "product_id": "p_beauty_001",
-    "title": "清爽防晒乳",
-    "category": "美妆护肤",
-    "price": 89.0,
-    "brand": "示例品牌",
-    "image_url": "/assets/beauty/images/p_beauty_001_live.jpg",
-    "stock": 12,
-    "stock_status": "in_stock",
-    "highlights": ["轻薄不油腻"],
-    "detail_url": "/api/products/p_beauty_001"
+    "product_id": "p_food_001",
+    "title": "三顿半 数字星球系列 超即溶精品咖啡1-6号 18颗装精品速溶咖啡",
+    "category": "食品饮料",
+    "price": 138.0,
+    "brand": "三顿半",
+    "sub_category": "咖啡",
+    "image_url": "/assets/food/images/p_food_001_live.jpg",
+    "stock": 2,
+    "detail_url": "/api/products/p_food_001",
+    "landing_url": null,
+    "highlights": ["..."],
+    "stock_status": "low_stock",
+    "unavailable_reason": null,
+    "group_label": "早餐"
   }
 }
 ```
 
-> `product` block 在 provisional 阶段可先展示；只有收到对应 `message_commit` 后，服务端才会将该商品写入会话「近期展示商品池」。后续 Agent 加购与 REST 加购均依赖此池。
+#### `type = "compare"`
 
-**推荐类回复的 block 顺序**（intro → 每个商品的 product + reason → outro）：
-
-```text
-block type=text      ← intro
-block type=product   ← 商品 1
-block type=text      ← 商品 1 推荐理由
-block type=product   ← 商品 2
-block type=text      ← 商品 2 推荐理由
-block type=text      ← outro（可选）
-```
-
-流式场景下 intro/reason/outro 以 `text_delta` 增量推送；`product` 在解析到 `<ITEM>` 后立即整卡推送。
-
-**`compare`** — 结构化对比表
+结构化对比块。
 
 ```json
 {
   "type": "compare",
-  "message_id": "asst-abc123",
+  "message_id": "asst-...",
   "attempt_id": "attempt-1",
-  "block_id": "blk-004",
+  "block_id": "blk-1",
   "compare": {
     "products": [
       {"product_id": "p1", "title": "商品 A"},
@@ -211,25 +302,34 @@ block type=text      ← outro（可选）
     ],
     "rows": [
       {
-        "dimension": "价格",
-        "values": {"p1": "¥199", "p2": "¥299"}
+        "dimension": "适合人群",
+        "values": {
+          "p1": "日常通勤",
+          "p2": "户外运动"
+        }
       }
     ]
   }
 }
 ```
 
-#### `cart` — 购物车快照
+### `cart`
 
-Agent 执行购物车工具成功后推送，结构与 [CartSnapshot](#cartsnapshot) 一致（含 `conversation_id`）。
+购物车快照。
 
-#### `done` — 本轮结束
+payload 与 `CartSnapshot` 相同。
+
+### `done`
+
+本轮 SSE 正常结束。
 
 ```json
 {}
 ```
 
-#### `error` — 错误
+### `error`
+
+本轮失败。
 
 ```json
 {
@@ -237,331 +337,388 @@ Agent 执行购物车工具成功后推送，结构与 [CartSnapshot](#cartsnaps
 }
 ```
 
-常见错误消息：
+已定义通用错误消息：
 
-| 消息 | 场景 |
-|------|------|
-| `模型输出连续异常，已停止本轮回复，请稍后重试。` | Agent 恢复重试次数耗尽 |
-| `服务处理失败，请稍后重试。` | 未预期服务端异常 |
+- `模型输出连续异常，已停止本轮回复，请稍后重试。`
+- `服务处理失败，请稍后重试。`
 
-### 客户端断开
+## Pydantic Schema
 
-客户端断开连接时，服务端取消 LLM 调用并停止推送，**不再发送 `done`**。最终回复只有在 `message_commit` 后写入会话历史；未提交的临时内容不会进入历史。
+定义位置：`server/schemas.py`
 
----
+### `ChatRequest`
 
-## 商品详情
+| 字段 | 类型 | 约束 |
+| --- | --- | --- |
+| `message` | `str` | `min_length=1` |
+| `conversation_id` | `str | None` | 可空 |
 
-### `GET /api/products/{product_id}`
-
-查询单个商品详情。
-
-**路径参数**
-
-| 参数 | 说明 |
-|------|------|
-| `product_id` | 商品 ID，如 `p_food_001` |
-
-**响应 200** — [ProductDetail](#productdetail)
-
-**响应 404**
-
-```json
-{"detail": "商品不存在。"}
-```
-
----
-
-## 购物车
-
-所有购物车接口通过 `conversation_id` 隔离会话。省略时服务端自动生成新 ID 并返回在响应体中。
-
-### `GET /api/cart`
-
-获取购物车快照。
-
-**Query 参数**
-
-| 参数 | 类型 | 必填 |
-|------|------|------|
-| `conversation_id` | string | 否 |
-
-**响应 200** — [CartSnapshot](#cartsnapshot)
-
-### `POST /api/cart/items`
-
-添加商品到购物车。
-
-**请求体**
-
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `conversation_id` | string | 否 | 会话 ID |
-| `product_id` | string | 是 | 商品 ID |
-| `quantity` | integer | 否 | 数量，默认 1，最小 1 |
-
-**响应 200** — [CartSnapshot](#cartsnapshot)
-
-**响应 404** — 商品不在近期展示池，或商品不存在
-
-**响应 409** — 商品已下架或库存不足
-
-**响应 422** — 数量参数非法（如 quantity < 1）
-
-### `PATCH /api/cart/items/{product_id}`
-
-修改购物车中某商品数量。
-
-**路径参数**：`product_id`
-
-**请求体**
-
-| 字段 | 类型 | 必填 |
-|------|------|------|
-| `conversation_id` | string | 否 |
-| `quantity` | integer | 是，≥ 1 |
-
-**响应 200** — [CartSnapshot](#cartsnapshot)
-
-**响应 404** — 购物车中不存在该商品
-
-**响应 409** — 库存不足
-
-**响应 422** — 数量非法
-
-### `DELETE /api/cart/items/{product_id}`
-
-从购物车删除指定商品。
-
-**Query 参数**：`conversation_id`（可选）
-
-**响应 200** — [CartSnapshot](#cartsnapshot)
-
-**响应 404** — 购物车中不存在该商品
-
-### `DELETE /api/cart`
-
-清空购物车。
-
-**Query 参数**：`conversation_id`（可选）
-
-**响应 200** — [CartSnapshot](#cartsnapshot)
-
----
-
-## 静态资源
-
-### `GET /assets/{path}`
-
-挂载 `ecommerce_agent_dataset/` 目录，提供商品图片等静态文件。
-
-示例：`GET /assets/beauty/images/p_beauty_001_live.jpg`
-
----
-
-## 数据模型
-
-定义于 `server/schemas.py`。
-
-### StockStatus
-
-```text
-"in_stock" | "low_stock" | "out_of_stock" | "inactive"
-```
-
-| 值 | 条件 |
-|----|------|
-| `in_stock` | 上架且库存 > 3 |
-| `low_stock` | 上架且 1 ≤ 库存 ≤ 3 |
-| `out_of_stock` | 库存 ≤ 0 |
-| `inactive` | 已下架 |
-
-### Product
-
-商品卡片字段（推荐流、购物车条目基类）。
+### `Product`
 
 | 字段 | 类型 | 说明 |
-|------|------|------|
-| `product_id` | string | 商品 ID |
-| `title` | string | 标题 |
-| `category` | string | 类目 |
-| `price` | number | 当前价格 |
-| `brand` | string \| null | 品牌 |
-| `sub_category` | string \| null | 子类目 |
-| `image_url` | string \| null | 图片 URL |
-| `stock` | integer \| null | 库存 |
-| `detail_url` | string \| null | 详情 API 路径 |
-| `landing_url` | string \| null | 落地页链接 |
-| `highlights` | string[] | 卖点摘要 |
-| `stock_status` | StockStatus | 库存状态 |
-| `unavailable_reason` | string \| null | 不可购买原因 |
-| `group_label` | string \| null | 组合推荐分组标签 |
+| --- | --- | --- |
+| `product_id` | `str` | 商品 ID |
+| `title` | `str` | 标题 |
+| `category` | `str` | 类目 |
+| `price` | `float` | 当前价格 |
+| `brand` | `str | None` | 品牌 |
+| `sub_category` | `str | None` | 子类目 |
+| `image_url` | `str | None` | 图片 URL，通常为 `/assets/...` |
+| `stock` | `int | None` | 库存 |
+| `detail_url` | `str | None` | 商品详情 API URL |
+| `landing_url` | `str | None` | 原始落地页 URL |
+| `highlights` | `list[str]` | 公开卖点 |
+| `stock_status` | `StockStatus` | 库存状态 |
+| `unavailable_reason` | `str | None` | 不可用原因 |
+| `group_label` | `str | None` | 跨类目推荐分组 |
 
-### ProductDetail
+`StockStatus = Literal["in_stock", "low_stock", "out_of_stock", "inactive"]`
 
-继承 `Product`，额外字段：
+### `ProductDetail`
+
+继承 `Product`，追加：
 
 | 字段 | 类型 | 说明 |
-|------|------|------|
-| `description` | string | 商品描述 |
-| `specs` | `{name, value}[]` | 规格列表 |
-| `faq` | `{question, answer}[]` | 官方 FAQ |
-| `review_summary` | ProductReviewSummary | 评价摘要 |
+| --- | --- | --- |
+| `description` | `str` | 商品完整说明 |
+| `specs` | `list[dict[str, str]]` | SKU 规格汇总 |
+| `faq` | `list[ProductFaq]` | 官方 FAQ，最多 5 条 |
+| `review_summary` | `ProductReviewSummary` | 用户评价摘要 |
 
-**ProductReviewSummary**
+### `ProductFaq`
 
 | 字段 | 类型 |
-|------|------|
-| `average_rating` | number \| null |
-| `total_count` | integer |
-| `highlights` | string[] |
+| --- | --- |
+| `question` | `str` |
+| `answer` | `str` |
 
-### CartItem
-
-继承 `Product`：
+### `ProductReviewSummary`
 
 | 字段 | 类型 | 说明 |
-|------|------|------|
-| `quantity` | integer | 数量，≥ 1 |
-| `is_active` | boolean \| null | 是否仍上架 |
-| `unavailable_reason` | string \| null | 不可用原因 |
+| --- | --- | --- |
+| `average_rating` | `float | None` | 一位小数平均评分 |
+| `total_count` | `int` | 评论总数 |
+| `highlights` | `list[str]` | 前 3 条评论内容 |
 
-### CartSnapshot
+### `CartItem`
+
+继承 `Product`，追加：
+
+| 字段 | 类型 | 约束 |
+| --- | --- | --- |
+| `quantity` | `int` | `ge=1` |
+| `is_active` | `bool | None` | 是否上架 |
+| `unavailable_reason` | `str | None` | 商品不可用原因 |
+
+### `CartSnapshot`
 
 | 字段 | 类型 | 说明 |
-|------|------|------|
-| `conversation_id` | string | 会话 ID |
-| `items` | CartItem[] | 购物车条目 |
-| `total_quantity` | integer | 商品总件数 |
-| `total_price` | number | 合计金额 |
-| `messages` | string[] | 业务提示：价格变动、自动移除下架/已删商品等 |
+| --- | --- | --- |
+| `conversation_id` | `str` | 会话 ID |
+| `items` | `list[CartItem]` | 购物车明细 |
+| `total_quantity` | `int` | 总件数 |
+| `total_price` | `float` | 总价，两位小数 |
+| `messages` | `list[str]` | 价格变化、下架移除等提示 |
 
-### ChatRequest
+### `AddCartItemRequest`
 
-| 字段 | 类型 | 必填 |
-|------|------|------|
-| `message` | string | 是 |
-| `conversation_id` | string \| null | 否 |
+| 字段 | 类型 | 约束 |
+| --- | --- | --- |
+| `conversation_id` | `str | None` | 可空 |
+| `product_id` | `str` | 必填 |
+| `quantity` | `int` | 默认 1，`ge=1` |
 
-### AddCartItemRequest
+### `UpdateCartItemRequest`
 
-| 字段 | 类型 | 必填 |
-|------|------|------|
-| `conversation_id` | string \| null | 否 |
-| `product_id` | string | 是 |
-| `quantity` | integer | 否，默认 1 |
-
-### UpdateCartItemRequest
-
-| 字段 | 类型 | 必填 |
-|------|------|------|
-| `conversation_id` | string \| null | 否 |
-| `quantity` | integer | 是 |
-
----
+| 字段 | 类型 | 约束 |
+| --- | --- | --- |
+| `conversation_id` | `str | None` | 可空 |
+| `quantity` | `int` | `ge=1` |
 
 ## Agent 工具
 
-以下工具由 LLM 在对话中调用，**不直接暴露为 HTTP 接口**。此处供联调与扩展参考。
+工具定义位置：`server/tools/`
 
 ### `retrieve_products`
 
-根据一个或多个检索子需求召回商品。
+执行函数：`tools.retrieve_products.execute(arguments: dict) -> list[dict]`
 
-**参数 `requests[]`**
+参数：
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `label` | string | 子需求名称（组合推荐分组） |
-| `search_query` | string | 改写后的检索语句 |
-| `category` | enum | `服饰运动` / `美妆护肤` / `数码电子` / `食品饮料` |
-| `min_price` / `max_price` | number | 价格区间 |
-| `must_have_terms` | string[] | 必须包含的属性 |
-| `exclude_terms` | string[] | 需排除的属性 |
-| `exclude_brands` | string[] | 需排除的品牌 |
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `requests` | `array` | 是 | 1-4 个检索子需求 |
 
-**返回**：按 request 分组的 Top-K 商品列表。
+每个 request：
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `label` | `string` | 是 | 子需求名称，如 `防晒护肤` |
+| `search_query` | `string` | 是 | 改写后的正向检索语句 |
+| `category` | `string` | 否 | `服饰运动`、`美妆护肤`、`数码电子`、`食品饮料` |
+| `min_price` | `number` | 否 | 最低价格 |
+| `max_price` | `number` | 否 | 最高价格 |
+| `must_have_terms` | `array[string]` | 否 | 必须具备的属性关键词 |
+| `exclude_terms` | `array[string]` | 否 | 需排除的属性短语 |
+| `exclude_brands` | `array[string]` | 否 | 需排除的品牌 |
+
+返回：
+
+```json
+[
+  {
+    "label": "早餐咖啡",
+    "search_query": "咖啡 早餐 便携",
+    "products": []
+  }
+]
+```
 
 ### 购物车工具
 
+执行函数：`tools.cart.execute(name: str, arguments: dict, conversation_id: str) -> dict`
+
 | 工具名 | 说明 |
-|--------|------|
-| `add_to_cart` | 批量加购，参数 `product_ids[]`、`quantity` |
-| `remove_from_cart` | 删除，支持 `product_id` / `cart_position` / `title_keyword` |
-| `update_cart_item` | 改量，定位方式同上 + `quantity` |
+| --- | --- |
+| `add_to_cart` | 把当前会话近期展示过的一个或多个商品加入购物车 |
+| `list_recent_products` | 读取当前会话最近展示的最多 20 个商品 |
+| `remove_from_cart` | 按商品 ID、购物车位置或标题关键词删除商品 |
+| `update_cart_item` | 按商品 ID、购物车位置或标题关键词修改数量 |
 | `view_cart` | 查看购物车 |
-| `clear_cart` | 清空 |
-| `list_recent_products` | 列出本会话近期展示商品（最多 20 个） |
+| `clear_cart` | 清空购物车 |
 
----
+通用返回：
 
-## 错误说明
-
-### HTTP 状态码
-
-| 状态码 | 场景 |
-|--------|------|
-| 200 | 成功 |
-| 404 | 商品不存在；加购时商品不在近期展示池；购物车条目不存在 |
-| 409 | 商品已下架或库存不足 |
-| 422 | 请求体验证失败（Pydantic）；购物车数量非法 |
-| 500 | 未捕获服务端异常 |
-
-### 运行时前置条件
-
-| 错误 | 原因 | 处理 |
-|------|------|------|
-| `缺少 ARK_API_KEY` | 未配置 LLM Key | 在 `.env` 中设置 |
-| `商品向量库为空` | ChromaDB 未索引 | 运行 `python ingest.py` |
-| `未在数据集目录中找到商品 JSON` | 数据集缺失 | 确认 `ecommerce_agent_dataset/` 存在 |
-
----
-
-## 交互示例
-
-### 完整 SSE 会话（简化）
-
-```text
-event: status
-data: {"phase":"retrieving","message":"正在检索商品...","step":null,"total_steps":null}
-
-event: status
-data: {"phase":"filtering","message":"正在筛选库存和价格...","step":null,"total_steps":null}
-
-event: status
-data: {"phase":"composing","message":"正在整理推荐...","step":null,"total_steps":null}
-
-event: status
-data: {"phase":"streaming","message":"正在输出回复...","step":null,"total_steps":null}
-
-event: message_start
-data: {"message_id":"asst-...","attempt_id":"attempt-1","provisional":true}
-
-event: block
-data: {"type":"text_delta","message_id":"asst-...","attempt_id":"attempt-1","block_id":"blk-1","content":"整体"}
-
-event: block
-data: {"type":"product","message_id":"asst-...","attempt_id":"attempt-1","block_id":"blk-2","product":{...}}
-
-event: block
-data: {"type":"text_delta","message_id":"asst-...","attempt_id":"attempt-1","block_id":"blk-3","content":"理由"}
-
-event: message_commit
-data: {"message_id":"asst-...","attempt_id":"attempt-1"}
-
-event: done
-data: {}
+```json
+{
+  "success": true,
+  "message": "已将「商品」加入购物车，每款数量 1 件。当前共 1 件，合计 ¥12.00。",
+  "cart": {}
+}
 ```
 
-### REST 加购流程
+错误返回：
+
+```json
+{
+  "success": false,
+  "message": "你想操作购物车里的哪一款？请说明第几个商品或商品名。"
+}
+```
+
+## 核心 Python 接口
+
+### 应用与路由
+
+| 模块 | 接口 | 说明 |
+| --- | --- | --- |
+| `main.py` | `create_app() -> FastAPI` | 创建应用并注册中间件、静态资源、路由 |
+| `api.__init__` | `include_api_routes(app)` | 注册 chat/products/cart router |
+| `api.chat` | `iter_chat_sse_events(conversation_id, message, is_disconnected=...)` | Agent 事件到 SSE dict 的异步迭代器 |
+
+### 商品与索引
+
+| 模块 | 接口 | 说明 |
+| --- | --- | --- |
+| `product_store.py` | `initialize_database()` | 创建数据库和表 |
+| `product_store.py` | `load_dataset_to_mysql(dataset_dir=None) -> int` | 数据集 upsert 到 MySQL |
+| `product_store.py` | `upsert_products(records)` | 批量幂等写入商品 |
+| `product_store.py` | `get_products_by_ids(product_ids) -> list[dict]` | 按传入顺序读取商品 |
+| `product_store.py` | `get_product_by_id(product_id) -> dict | None` | 读取单个商品 |
+| `product_store.py` | `get_product_detail(product_id) -> dict | None` | 构造公开详情 |
+| `product_store.py` | `list_active_products() -> list[dict]` | 读取上架商品 |
+| `product_store.py` | `get_products_updated_after(updated_after) -> list[dict]` | 读取增量商品 |
+| `product_store.py` | `get_sync_state(name) -> datetime | None` | 读取同步水位 |
+| `product_store.py` | `set_sync_state(name, last_sync_at)` | 写入同步水位 |
+| `ingest.py` | `load_products(dataset_dir) -> list[dict]` | 扫描数据集 JSON |
+| `ingest.py` | `build_embedding_text(product) -> str` | 构造紧凑向量文本 |
+| `ingest.py` | `build_full_document(product) -> str` | 构造完整商品文档 |
+| `ingest.py` | `ingest(dataset_dir=None, reset=True) -> int` | 从 MySQL 构建或更新 Chroma 索引 |
+| `chroma_sync.py` | `sync_once() -> dict` | 执行一轮 MySQL -> Chroma 增量同步 |
+| `chroma_sync.py` | `run_periodic_sync(interval_seconds=180, max_runs=None)` | 周期同步任务 |
+| `embedding.py` | `get_embedding_function()` | 返回全局 SentenceTransformer embedding function |
+
+### 检索与商品展示
+
+| 模块 | 接口 | 说明 |
+| --- | --- | --- |
+| `retriever.py` | `retrieve(query, top_k=5, intent=None) -> list[dict]` | Chroma 召回、rerank、MySQL hydrate 和过滤 |
+| `catalog.product_presenter` | `product_availability(product) -> tuple[str, str | None]` | 计算库存状态 |
+| `catalog.product_presenter` | `product_card_payload(product, group_label=None) -> dict` | 构造商品卡片公开字段 |
+| `catalog.product_presenter` | `build_product_detail(product) -> dict` | 构造详情页公开字段 |
+
+### 会话与购物车
+
+| 模块 | 接口 | 说明 |
+| --- | --- | --- |
+| `conversation.py` | `get_or_create_id(conversation_id) -> str` | 获取或创建内存会话 |
+| `conversation.py` | `get_history(conversation_id) -> list[dict]` | 读取历史 |
+| `conversation.py` | `append(conversation_id, message)` | 写入历史并保留最近 10 轮 |
+| `cart_store.py` | `record_recent_product(conversation_id, product)` | 记录成功展示商品 |
+| `cart_store.py` | `list_recent_products(conversation_id) -> list[dict]` | 读取近期展示商品 |
+| `cart_store.py` | `add_item(conversation_id, product_id, quantity=1) -> dict` | 加购 |
+| `cart_store.py` | `update_item(conversation_id, product_id, quantity) -> dict` | 改量 |
+| `cart_store.py` | `remove_item(conversation_id, product_id) -> dict` | 删除 |
+| `cart_store.py` | `clear_cart(conversation_id) -> dict` | 清空 |
+| `cart_store.py` | `snapshot(conversation_id) -> dict` | 当前购物车快照 |
+
+### Agent 与 SSE
+
+| 模块 | 接口 | 说明 |
+| --- | --- | --- |
+| `agent.loop` | `run_turn(conversation_id, user_message)` | 执行一轮 Agent 对话并 yield 内部事件 |
+| `agent.llm` | `create_chat_completion(client, label, **kwargs)` | 带超时和日志的 LLM 调用 |
+| `agent.llm` | `stream_final_response_with_recovery(...)` | 带恢复重试的最终回复流 |
+| `agent.streaming` | `StreamingFinalEmitter` | 流式解析最终回复并发出 block 事件 |
+| `agent.parsing.final` | `parse_final_response(text, candidate_ids, candidate_groups=None)` | 解析普通文本、推荐和对比标记 |
+| `agent.emitters` | `events_from_parsed_response(...)` | 解析结果转 block 事件 |
+| `sse.mapper` | `map_agent_event(event, conversation_id)` | 内部事件转 SSE dict |
+| `sse.mapper` | `map_done_event()` | 构造 done SSE |
+| `sse.mapper` | `map_error_event(message)` | 构造 error SSE |
+
+### Agent 事件 dataclass
+
+定义位置：`server/agent/events.py`
+
+| 类 | 说明 |
+| --- | --- |
+| `StructuredStatusEvent` | 阶段状态 |
+| `CartEvent` | 购物车快照 |
+| `BlockTextEvent` | 完整文本块 |
+| `BlockTextDeltaEvent` | 文本增量块 |
+| `BlockProductEvent` | 商品卡片块 |
+| `BlockCompareEvent` | 对比表块 |
+| `MessageStartEvent` | assistant 消息开始 |
+| `MessageResetEvent` | attempt 重置 |
+| `MessageCommitEvent` | assistant 消息提交 |
+| `RecommendationItem` | 推荐条目解析结果 |
+| `ParsedRecommendation` | 推荐块解析结果 |
+| `ParsedFinalResponse` | 最终回复解析结果 |
+
+### 错误类型
+
+定义位置：`server/agent/errors.py`
+
+| 类 | 说明 |
+| --- | --- |
+| `RecoverableAgentError` | 可反馈给 LLM 修正的边界错误 |
+| `AgentRecoveryExhausted` | 恢复次数耗尽后的终止错误 |
+| `RecoveryState` | 记录同类错误和总错误恢复次数 |
+
+## Android 接口索引
+
+### `ChatService`
+
+位置：`client-android/app/src/main/java/.../data/api/ChatApiService.kt`
+
+| 方法 | 说明 |
+| --- | --- |
+| `streamChat(message, conversationId): Flow<ChatEvent>` | 发起 SSE 聊天 |
+| `getCart(conversationId): Cart` | 获取购物车 |
+| `getProductDetail(productId): ProductDetail` | 获取商品详情 |
+| `addCartItem(conversationId, productId, quantity)` | 加购 |
+| `updateCartItem(conversationId, productId, quantity)` | 改量 |
+| `removeCartItem(conversationId, productId)` | 删除购物车商品 |
+| `clearCart(conversationId)` | 清空购物车 |
+
+实现类：`ChatApiService`
+
+### `ChatEvent`
+
+位置：`data/api/ChatEvent.kt`
+
+| 事件类 | 对应服务端事件 |
+| --- | --- |
+| `StructuredStatus` | `status` |
+| `CartUpdated` | `cart` |
+| `MessageStart` | `message_start` |
+| `MessageReset` | `message_reset` |
+| `MessageCommit` | `message_commit` |
+| `BlockText` | `block type=text` |
+| `BlockTextDelta` | `block type=text_delta` |
+| `BlockProduct` | `block type=product` |
+| `BlockCompare` | `block type=compare` |
+| `Done` | `done` |
+| `Error` | `error` |
+
+### `ChatViewModel`
+
+位置：`viewmodel/ChatViewModel.kt`
+
+公开操作：
+
+| 方法 | 说明 |
+| --- | --- |
+| `sendMessage(text)` | 发送用户消息并消费 SSE |
+| `refreshCart()` | 刷新购物车 |
+| `openProductDetail(product)` | 打开商品详情 |
+| `dismissProductDetail()` | 关闭详情 |
+| `addToCart(product)` | 加购商品 |
+| `incrementCartItem(productId)` | 数量加一 |
+| `decrementCartItem(productId)` | 数量减一，减到 0 时删除 |
+| `updateCartItem(productId, quantity)` | 设置数量 |
+| `removeCartItem(productId)` | 删除商品 |
+| `clearCart()` | 清空购物车 |
+| `cancelResponse()` | 取消当前 SSE 回复 |
+
+### Android 数据模型
+
+| 文件 | 类型 |
+| --- | --- |
+| `data/model/Product.kt` | `Product`、`ProductSpec`、`ProductFaq`、`ReviewSummary`、`ProductDetail` |
+| `data/model/Cart.kt` | `CartItem`、`Cart` |
+| `data/model/CompareTable.kt` | `CompareProduct`、`CompareRow`、`CompareTable` |
+| `data/model/Message.kt` | `MessageBlock`、`Message`、`StreamingStatus` |
+
+## CLI 脚本
+
+### `server/product_store.py`
+
+加载数据集到 MySQL：
 
 ```bash
-# 1. 先通过聊天获得 conversation_id 并展示商品卡片
-# 2. 加购
-curl -X POST http://127.0.0.1:8000/api/cart/items \
-  -H "Content-Type: application/json" \
-  -d '{"conversation_id":"YOUR_CONV_ID","product_id":"p_food_001","quantity":1}'
+cd server
+python product_store.py
+```
 
-# 3. 查看购物车
-curl "http://127.0.0.1:8000/api/cart?conversation_id=YOUR_CONV_ID"
+### `server/ingest.py`
+
+构建 ChromaDB 索引：
+
+```bash
+cd server
+python ingest.py
+python ingest.py --dataset-dir ../ecommerce_agent_dataset
+python ingest.py --upsert
+```
+
+### `server/chroma_sync.py`
+
+手动执行或循环执行增量同步：
+
+```bash
+cd server
+python chroma_sync.py
+python chroma_sync.py --loop
+```
+
+### `eval/run_retrieval_eval.py`
+
+评估检索链路：
+
+```bash
+cd eval
+python run_retrieval_eval.py --top-k 5 --with-intent
+python run_retrieval_eval.py --top-k 5 --no-intent
+python run_retrieval_eval.py --limit 10
+```
+
+### `eval/run_saved_intent_vector_eval.py`
+
+复用保存的意图和检索文本评估：
+
+```bash
+cd eval
+python run_saved_intent_vector_eval.py --source-report reports/retrieval_eval_top5_with_intent.json
+python run_saved_intent_vector_eval.py --source-report reports/retrieval_eval_top5_with_intent.json --vector-only
 ```

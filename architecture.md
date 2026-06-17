@@ -1,328 +1,344 @@
-# 架构设计
+# Architecture
 
-本文档描述 EcommerceAgent 的系统边界、模块职责与核心数据流。接口细节见 [api_index.md](api_index.md)。
+本文档基于当前源码描述 EcommerceAgent 的系统结构、模块职责和主要数据流。
 
-## 1. 系统概览
+## 总览
+
+EcommerceAgent 由四部分组成：
+
+- 后端服务：`server/`，FastAPI + SSE，负责会话、Agent 编排、RAG 检索、商品详情和购物车。
+- 移动客户端：`client-android/`，Kotlin + Jetpack Compose，负责聊天 UI、商品卡片、商品详情和购物车交互。
+- 数据集：`ecommerce_agent_dataset/`，按类目组织的商品 JSON 和图片。
+- 评估工具：`eval/`，用于离线评估商品召回效果。
 
 ```mermaid
-flowchart TB
-    subgraph Client["客户端"]
-        Android["Android App\n(Kotlin / Compose)"]
-    end
-
-    subgraph Server["FastAPI 后端"]
-        API["api/\nHTTP + SSE"]
-        Agent["agent/\nReAct 主循环"]
-        Tools["tools/\n检索 / 购物车"]
-        SSE["sse/mapper\n事件映射"]
-        Conv["conversation\n会话历史"]
-        Cart["cart_store\n购物车 / 近期商品池"]
-    end
-
-    subgraph Data["数据层"]
-        MySQL[("MySQL\n商品权威源")]
-        Chroma[("ChromaDB\n语义索引")]
-        Dataset["ecommerce_agent_dataset/\nJSON + 图片"]
-    end
-
-    subgraph External["外部服务"]
-        LLM["火山方舟 LLM"]
-        Embed["Sentence Transformers\nEmbedding"]
-    end
-
-    Android -->|POST /api/chat SSE| API
-    Android -->|REST| API
-    API --> Agent
-    Agent --> Tools
-    Agent --> LLM
-    Tools -->|retrieve_products| Retriever["retriever.py"]
-    Retriever --> Chroma
-    Retriever --> MySQL
-    Tools --> Cart
-    Agent --> Conv
-    Agent --> SSE
-    SSE --> Cart
-    API --> Cart
-    API --> ProductStore["product_store.py"]
+flowchart TD
+    Android[Android Compose Client] -->|POST /api/chat SSE| FastAPI[FastAPI API]
+    Android -->|REST cart/products| FastAPI
+    FastAPI --> Agent[Agent ReAct Loop]
+    Agent -->|tool call| RetrieveTool[retrieve_products]
+    Agent -->|tool call| CartTool[cart tools]
+    RetrieveTool --> Retriever[retriever.py]
+    Retriever --> Chroma[(ChromaDB)]
+    Retriever --> MySQL[(MySQL products)]
+    CartTool --> CartStore[In-memory cart_store]
+    CartStore --> MySQL
+    Dataset[JSON + images dataset] --> ProductStore[product_store.py]
     ProductStore --> MySQL
-    Dataset -->|启动 upsert / ingest --dataset-dir| ProductStore
-    ProductStore -->|chroma_sync 增量| Chroma
-    Chroma --> Embed
+    MySQL --> ChromaSync[chroma_sync.py]
+    ChromaSync --> Chroma
+    FastAPI -->|/assets| Dataset
 ```
 
-## 2. 分层职责
+## 运行时边界
 
-### 2.1 接入层（`server/api/`）
+### FastAPI 入口
 
-| 模块 | 职责 |
-|------|------|
-| `chat.py` | 接收用户消息，驱动 Agent 一轮对话，经 SSE 推送事件流；客户端断开时取消 LLM |
-| `products.py` | 商品详情 REST 查询 |
-| `cart.py` | 购物车 CRUD REST 接口 |
+位置：`server/main.py`
 
-`main.py` 生命周期：启动时 `load_dataset_to_mysql()`、挂载 `/assets` 静态文件、启动 `chroma_sync.run_periodic_sync()`（180 秒间隔）。
+`create_app()` 创建 `FastAPI(title="EcommerceAgent API")`，挂载：
 
-### 2.2 Agent 编排层（`server/agent/`）
+- CORS：允许所有来源、方法和请求头。
+- 静态资源：`/assets` 指向 `ecommerce_agent_dataset/`。
+- 健康检查：`GET /health`。
+- 业务路由：通过 `api.include_api_routes(app)` 注册聊天、商品、购物车路由。
 
-**ReAct 工具循环**（`loop.py`）：
+应用 lifespan 执行两个启动任务：
 
-1. 用户消息写入 `conversation`，携带 `SYSTEM_PROMPT` 调用 LLM（temperature=0.3，超时 60s）。
-2. LLM 返回工具调用 → 执行工具，结果写回 `messages`，继续循环（最多 **5 步**，`MAX_TOOL_STEPS`）。
-3. 任意工具执行后都回到 ReAct 循环，允许同一用户请求内串联检索、删除、改量等复合操作。
-4. LLM 不再请求工具，或工具步数达到上限后，进入**流式**最终回复（`StreamingFinalEmitter`），解析 `<R>` / `<C>` 标记。
+1. `product_store.load_dataset_to_mysql()`：把数据集 JSON 幂等写入 MySQL。
+2. `asyncio.create_task(chroma_sync.run_periodic_sync())`：启动 ChromaDB 后台增量同步。
 
-**最终回复两条路径**：
+### 商品权威源与语义索引
 
-| 路径 | 触发 | 行为 |
-|------|------|------|
-| 流式 | LLM 不再请求工具，或工具步数达到上限 | 边收 LLM token 边解析，产出 `text_delta` / `product` block |
-| 非流式 | 内部测试/兼容路径 | `parse_final_response` 一次性解析，经 `events_from_parsed_response` 产出 block |
+MySQL 是商品权威源，ChromaDB 是可重建的语义索引。
 
-最终回复不再因调用过 `retrieve_products` 而强制输出 `<R>`：模型只有在决定推荐工具候选商品时才输出 `<R>`。候选为空、候选明显不符合需求或无法确认匹配度时，可输出普通短文本，不产生商品卡片。服务端只校验显式输出的隐藏标记是否合法，且 `<R>` / `<C>` 必须是首个非空内容。
+- `server/product_store.py`
+  - 定义 `products` 与 `sync_state` 表。
+  - 创建数据库和表。
+  - 把数据集商品转成 MySQL 记录。
+  - 提供商品快照、详情、活跃商品列表、同步状态读写。
+- `server/ingest.py`
+  - 解析数据集 JSON。
+  - 构造 `embedding_text` 和完整商品文档。
+  - 从 MySQL 上架商品构建或 upsert ChromaDB collection。
+- `server/chroma_sync.py`
+  - 读取 `products.updated_at > last_sync_at` 的变更。
+  - 上架且有库存的商品 upsert 到 ChromaDB。
+  - 下架商品从 ChromaDB 删除。
+  - 同步进度写回 `sync_state`。
 
-**推荐 block 顺序**（非流式与流式一致）：`intro 文本` → 每个商品的 `product 卡片` + `reason 文本` → `outro 文本`。
+设计约束：
 
-最终回复采用 provisional SSE 生命周期：每次尝试先推送 `message_start(message_id, attempt_id)`，临时输出 `block`；若解析失败，推送 `message_reset` 后用同一 `message_id` 和新的 `attempt_id` 重试；解析成功后推送 `message_commit`。客户端按 `message_id + attempt_id` 覆盖临时内容。
+- 价格、库存、上下架状态不依赖 Chroma 文档，检索后从 MySQL 实时补全。
+- Chroma metadata 保存稳定字段，如 `product_id`、标题、品牌、类目、图片。
+- 商品详情响应不暴露完整 `raw_payload`。
 
-**可恢复错误**（`errors.py`）：
+## 后端模块职责
 
-- 工具 JSON 非法、推荐/对比标记格式错误、可见正文超长或含 Markdown 等 → 注入 system feedback 重试。
-- 同类错误最多重试 **2 次**（`MAX_RECOVERY_RETRIES`），总恢复次数上限 **6 次**（`MAX_TOTAL_RECOVERY_ATTEMPTS`）。
-- 超限抛出 `AgentRecoveryExhausted`，SSE 推送 `error` 事件。
+### `server/api/`
 
-**移动端输出约束**（`parsing/mobile.py` + `constants.py`）：
+HTTP 层保持薄封装：
 
-- 可见正文 ≤ **120** 字（`MOBILE_VISIBLE_REPLY_MAX_CHARS`）。
-- 禁止 Markdown 标题、加粗、表格、分隔线。
-- 推荐标记字段上限：INTRO 40 字、REASON 45 字、OUTRO 40 字。
+- `chat.py`：`POST /api/chat`，把 Agent 事件映射为 SSE。
+- `products.py`：`GET /api/products/{product_id}`，读取公开商品详情。
+- `cart.py`：购物车 REST API，转换 `CartOperationError` 为 HTTP 错误。
+- `__init__.py`：统一注册路由。
 
-关键子模块：
+### `server/agent/`
 
-| 模块 | 职责 |
-|------|------|
-| `loop.py` | 主循环、工具调度 |
-| `llm.py` | LLM 调用、流式最终回复、取消/超时处理 |
-| `streaming.py` | 流式 `<R>` / `<C>` 解析，`text_delta` 按 CJK 单字/非 CJK 3 字符切分 |
-| `parsing/` | 推荐/对比/标记语法校验 |
-| `emitters.py` | 非流式解析结果 → block 事件 |
-| `prompts.py` | 系统提示词 |
-| `candidates.py` | 工具候选格式化（含完整 document，用于当前轮次与会话历史） |
+Agent 层实现 ReAct 工具循环、最终回复流式解析和可恢复错误处理。
 
-### 2.3 工具层（`server/tools/`）
+- `loop.py`：`run_turn()` 主循环。
+- `llm.py`：Chat Completions 调用、超时控制、最终回复流。
+- `prompts.py`：工具调用规则、移动端短回复规则、隐藏结构化标记格式。
+- `events.py`：内部事件和解析结果 dataclass。
+- `streaming.py`：流式解析 `<R>` 推荐标记，及时发出商品块和文本增量。
+- `emitters.py`：把解析结果转换成 block 事件，并写入对话历史。
+- `parsing/`：校验 `<R>` 推荐、`<C>` 对比、移动端可见文本约束。
+- `errors.py`：`RecoverableAgentError`、`AgentRecoveryExhausted`、`RecoveryState`。
+- `tools_helpers.py`：工具调用解析、工具错误反馈、工具类型判断。
+- `candidates.py`：候选商品分组格式化与 group 校验辅助。
 
-| 工具 | 说明 |
-|------|------|
-| `retrieve_products` | 1–4 个检索子需求 → `retriever.retrieve()` |
-| `add_to_cart` | 批量加购，需明确 `product_ids` |
-| `remove_from_cart` / `update_cart_item` | 支持 `product_id`、`cart_position`（1-based）、`title_keyword` |
-| `view_cart` / `clear_cart` | 查看 / 清空 |
-| `list_recent_products` | 本会话近期展示商品（最多 20），仅用于消解指代 |
+关键策略：
 
-### 2.4 检索层（`server/retriever.py`）
+- 单轮最多执行 `MAX_TOOL_STEPS = 5` 个 ReAct 工具步骤。
+- LLM 单次调用超时为 `LLM_TIMEOUT_SECONDS = 60`。
+- 同类可恢复错误最多重试 2 次，总恢复次数最多 6 次。
+- 最终可见回复限制为移动端短文本，禁止 Markdown 表格、标题等重格式。
+- 推荐商品必须使用 `<R>` 标记引用本轮工具候选商品 ID。
+- 基于历史商品做对比时使用 `<C>{...}</C>` 结构化对比标记。
 
-1. **向量召回**：ChromaDB，`n_results = min(max(top_k×6, 30), count)`。
-2. **元数据过滤**：类目、排除品牌写入 `where`；无结果时 fallback 无 filter 重查。
-3. **重排**：向量 70% + 必选词命中 30% − 排除词惩罚（negation-aware）。
-4. **MySQL hydrate**：补全价格/库存，过滤下架/缺货/价格区间。
+### `server/tools/`
 
-### 2.5 数据层
+LLM 工具注册表。
 
-#### MySQL（权威源）
+- `retrieve_products.py`
+  - 定义 `retrieve_products` 工具 JSON schema。
+  - 支持 `requests` 批量检索子需求。
+  - 将 `search_query`、类目、价格、must/exclude terms 转为 retriever intent。
+  - `parse_intent()` 供离线评估通过强制工具调用抽取检索意图。
+- `cart.py`
+  - 定义购物车工具：`add_to_cart`、`list_recent_products`、
+    `remove_from_cart`、`update_cart_item`、`view_cart`、`clear_cart`。
+  - 将自然语言指代解析成确定性购物车操作。
+- `__init__.py`
+  - 合并工具定义。
+  - 分发工具执行；购物车工具必须传入 `conversation_id`。
 
-`product_store.py`：
+### `server/retriever.py`
 
-- 启动时扫描 `ecommerce_agent_dataset/*/data/*.json` 幂等 upsert。
-- `ingest.py --dataset-dir` 也可触发同样 upsert。
-- `sync_state` 表记录 Chroma 增量同步水位。
+RAG 检索链路：
 
-#### ChromaDB（语义索引）
+1. 从 ChromaDB collection 读取候选，候选数量为 `min(max(limit * 6, 30), count)`。
+2. 如果 intent 包含类目或排除品牌，构造 Chroma `where` filter。
+3. 如果 filter 查询无结果，回退到无 filter 查询。
+4. 对候选进行 rerank：
+   - 向量距离权重 `_VECTOR_WEIGHT = 0.7`。
+   - must-have 命中权重 `_MUST_TERM_WEIGHT = 0.3`。
+   - exclude terms 在商品正文和用户评价中命中会产生衰减惩罚。
+5. 根据 product_id 从 MySQL 补全最新商品快照。
+6. 过滤下架、无库存、类目不符、排除品牌、价格区间不符的商品。
 
-- 目录：`server/chroma_db/`，collection 默认 `products`。
-- 存储：`embedding_text` 向量、`description` 文档、稳定 metadata。
-- **不含**价格、库存、上下架。
+### `server/cart_store.py`
 
-`ingest.py` 从 MySQL `list_active_products()` 构建索引；`chroma_sync.py` 后台增量 upsert/删除。
+进程内购物车与近期展示商品池。
 
-#### 内存状态
+- `_carts`：`conversation_id -> product_id -> quantity/last_seen_price`。
+- `_recent_product_entries`：每个会话最多保存 20 个最近展示商品。
+- 加购必须满足：
+  - 商品在当前会话近期展示商品池中。
+  - 商品存在、上架、有库存。
+  - 加购后数量不超过库存。
+- `snapshot()` 每次从 MySQL 重新 hydrate 商品，移除已不存在或下架商品，并提示价格变化。
 
-| 存储 | 模块 | 说明 |
-|------|------|------|
-| 会话历史 | `conversation.py` | 最多 10 轮 user 消息；工具调用与完整 tool 结果（含 document）也写入 |
-| 购物车 | `cart_store.py` | 按 `conversation_id` 隔离 |
-| 近期展示商品池 | `cart_store.py` | 最终回复 `message_commit` 时写入已提交的 product block；加购前置条件 |
+### `server/sse/mapper.py`
 
-购物车 hydrate 时会：自动移除已下架/已删除商品、检测**价格变动**并写入 `CartSnapshot.messages`。
+把 Agent 内部事件转换成客户端消费的 SSE 事件。
 
-> 会话与购物车为进程内存，重启丢失。
+重要细节：
 
-### 2.6 展示层
+- `BlockProductEvent` 只映射商品块，不记录近期商品。
+- `MessageCommitEvent` 才把成功提交的商品卡记录到近期展示池。
+- 这样可以避免失败重试过程中的临时商品卡被错误允许加购。
 
-- `catalog/product_presenter.py`：派生 `stock_status`、`highlights`、`detail_url`（`/api/products/{id}`）、详情页 specs/faq/review_summary。
-- `sse/mapper.py`：Agent 事件 → SSE（`message_start` / `message_reset` / `message_commit` / `status` / `block` / `cart` / `done` / `error`）。
+### `server/catalog/product_presenter.py`
 
-### 2.7 Android 客户端
+商品公开字段派生层。
 
-- `ChatViewModel` 本地生成 `conversationId`，全链路携带。
-- `ChatApiService` 使用 `BuildConfig.API_BASE_URL`（在 `app/build.gradle.kts` 配置，**非**硬编码 `10.0.2.2`）。
-- 相对路径图片/API URL 拼成绝对地址；支持取消 SSE、商品详情弹层、购物车 REST 操作。
+- `product_card_payload()`：生成聊天卡片和详情页共享字段。
+- `build_product_detail()`：在卡片字段基础上追加描述、规格、FAQ、评价摘要。
+- `product_availability()`：把 `is_active` 和 `stock` 转为
+  `in_stock`、`low_stock`、`out_of_stock`、`inactive`。
 
-## 3. 核心流程
+## 客户端架构
 
-### 3.1 商品推荐
+位置：`client-android/`
+
+```mermaid
+flowchart TD
+    MainActivity --> ChatRoute
+    ChatRoute --> ChatViewModel
+    ChatViewModel --> ChatService
+    ChatService --> ChatApiService
+    ChatApiService -->|SSE /api/chat| Backend
+    ChatApiService -->|REST cart/products| Backend
+    ChatViewModel --> ChatUiState
+    ChatUiState --> ChatScreen
+```
+
+### 网络层
+
+`data/api/ChatApiService.kt` 实现 `ChatService`：
+
+- `streamChat()`：使用 OkHttp SSE 消费 `/api/chat`。
+- `getCart()`、`addCartItem()`、`updateCartItem()`、`removeCartItem()`、`clearCart()`：
+  调用购物车 REST API。
+- `getProductDetail()`：读取商品详情。
+- 相对图片和 API URL 会基于 `BuildConfig.API_BASE_URL` 补全为绝对 URL。
+
+### 状态层
+
+`viewmodel/ChatViewModel.kt`：
+
+- 维护 `ChatUiState`。
+- 生成本地 `conversationId`。
+- 管理 SSE 消息生命周期、attempt 重试、增量文本、商品块和对比块。
+- 处理取消回复、商品详情弹层和购物车操作。
+
+### UI 与模型
+
+- `ui/chat/ChatScreen.kt`：聊天主界面。
+- `data/model/Message.kt`：消息块模型，包含文本、商品、对比块。
+- `data/model/Product.kt`：商品卡片和详情模型。
+- `data/model/Cart.kt`：购物车模型。
+- `data/model/CompareTable.kt`：对比表模型。
+
+## 核心数据流
+
+### 启动与索引同步
 
 ```mermaid
 sequenceDiagram
-    participant C as 客户端
-    participant A as Agent
-    participant T as retrieve_products
-    participant R as Retriever
+    participant App as FastAPI lifespan
+    participant Dataset as JSON dataset
+    participant MySQL as MySQL
+    participant Sync as chroma_sync
+    participant Chroma as ChromaDB
 
-    C->>A: POST /api/chat
-    A-->>C: status retrieving / filtering
-    A->>T: 执行检索
-    T->>R: retrieve + MySQL hydrate
-    A-->>C: status composing / streaming
-    A-->>C: block text_delta / product / text
-    A-->>C: done
+    App->>Dataset: scan */data/*.json
+    App->>MySQL: initialize database + upsert products
+    App->>Sync: start periodic task
+    Sync->>MySQL: read products updated after sync_state
+    Sync->>Chroma: upsert active products / delete inactive products
+    Sync->>MySQL: update sync_state
 ```
 
-### 3.2 购物车
+### 聊天推荐
 
-- **对话**：Agent 调用购物车工具 → `CartEvent` → SSE `cart`。
-- **REST**：`/api/cart/*` 与 Agent 共享 `cart_store`。
-- **加购约束**：商品须在近期展示池中（404）；库存不足/下架返回 409。
+```mermaid
+sequenceDiagram
+    participant Client as Android Client
+    participant API as /api/chat
+    participant Agent as run_turn
+    participant LLM as Ark Chat Completions
+    participant Tool as retrieve_products
+    participant Retriever as retriever.py
+    participant MySQL as MySQL
+    participant Chroma as ChromaDB
 
-### 3.3 数据导入与同步
-
-```text
-首次部署
-  └─ python ingest.py --dataset-dir ../ecommerce_agent_dataset
-       ├─ load_dataset_to_mysql()
-       └─ list_active_products() → ChromaDB 全量 upsert
-
-服务运行中
-  ├─ 启动：load_dataset_to_mysql()（幂等）
-  └─ 后台：chroma_sync 每 180s 增量同步
+    Client->>API: POST message + conversation_id
+    API->>Agent: run_turn()
+    Agent->>LLM: system prompt + history + tools
+    LLM->>Agent: tool call retrieve_products
+    Agent-->>Client: status retrieving
+    Agent->>Tool: execute(arguments)
+    Tool->>Retriever: retrieve(query, top_k, intent)
+    Retriever->>Chroma: query semantic candidates
+    Retriever->>MySQL: hydrate latest product snapshots
+    Retriever-->>Tool: grouped products
+    Tool-->>Agent: candidate groups
+    Agent->>LLM: final streaming response
+    Agent-->>Client: message_start/status/block events
+    Agent-->>Client: message_commit/done
 ```
 
-## 4. 关键设计决策
+### 推荐商品加购
 
-### 4.1 MySQL 作为商品权威源，Chroma 只做语义召回
+```mermaid
+sequenceDiagram
+    participant Client as Android Client
+    participant API as FastAPI
+    participant Mapper as sse.mapper
+    participant Cart as cart_store
+    participant MySQL as MySQL
 
-商品价格、库存、上下架状态和详情页 payload 以 MySQL 为准；Chroma 只保存 `embedding_text`、`description` 和稳定 metadata，用于向量召回。这样可以避免把价格、库存这类高频变化字段固化进向量库，减少重建索引成本。
-
-影响：
-
-- 检索链路必须在 Chroma 召回后执行 MySQL hydrate，再过滤下架、缺货和价格区间。
-- Chroma 结果不能直接返回给客户端；所有可见商品卡片都必须经过 `product_store.product_card_payload()`。
-- 增量同步只负责把可检索文本和稳定 metadata 写入 Chroma，商品实时状态仍在 MySQL 查询阶段裁决。
-
-### 4.2 启动幂等导入 + 后台增量同步
-
-服务启动时执行 `load_dataset_to_mysql()`，保证本地数据集和 MySQL 至少处于可服务状态；`chroma_sync` 每 180 秒按 `sync_state` 水位同步到 Chroma。这让开发和演示环境可以少依赖人工初始化步骤，同时避免每次启动都全量重建向量库。
-
-影响：
-
-- 数据集 JSON 是初始数据来源，MySQL 是运行期权威源。
-- `products.updated_at` 只有在核心字段变化时才推进，避免无意义触发 Chroma 同步。
-- 如果向量库为空，检索应失败并提示先运行 `python ingest.py`，而不是返回空推荐掩盖环境问题。
-
-### 4.3 ReAct 循环限制在 5 步，并强制工具后回到模型决策
-
-Agent 采用“模型决策 → 工具执行 → 工具结果回填 → 模型继续决策”的 ReAct 主循环，同一轮最多执行 5 个工具步骤。这样既支持“先检索、再比较、再加购/改购物车”的复合意图，又能限制模型反复调用工具造成的延迟和成本。
-
-影响：
-
-- 每个工具结果都会写入当前轮 `messages`，成功工具调用也会进入会话历史，后续多轮可引用商品 document。
-- 达到工具步数上限后，系统会要求模型基于已有工具结果直接回复；信息仍不足时应追问用户。
-- 工具异常会被转成可恢复反馈，交给模型修正参数或表达，而不是直接终止整轮对话。
-
-### 4.4 隐藏标记承载 UI 结构，客户端只消费 SSE block
-
-最终回复使用 `<R>` 推荐块和 `<C>` 对比块表达结构化内容，客户端不解析大段自然语言来识别商品卡片。模型负责输出受约束的隐藏标记，服务端解析后发出 `text_delta`、`product`、`compare` 等 block。
-
-影响：
-
-- 服务端不强制调用过 `retrieve_products` 后必须输出 `<R>`；只有显式 `<R>` 会生成商品卡片。模型可在候选为空或不匹配时输出普通短文本，但不能在普通文本后再追加隐藏标记。
-- 商品 ID 必须来自本轮候选集，防止模型捏造不存在或未检索到的商品。
-- 可见正文受移动端长度和格式约束，不允许 Markdown 表格、标题、加粗等不稳定展示形态。
-
-### 4.5 流式解析推荐标记，让商品卡片尽早出现
-
-推荐回复不等完整 LLM 输出结束再解析，而是在流中识别 `<ITEM id="...">` 后立即发出商品卡片，再继续流式输出推荐理由。这样降低首个可见内容和首张商品卡片的等待时间，移动端也能更快渲染可交互内容。
-
-影响：
-
-- `StreamingFinalEmitter` 必须维护推荐块状态机，严格校验标签顺序、嵌套和闭合。
-- 文本 delta 按 CJK 单字、非 CJK 3 字符切分，兼顾中文流式观感和事件数量。
-- 一旦流式解析发现非法标记，会抛出可恢复错误，让模型重试生成；客户端先显示的 provisional 内容会在 `message_reset` 后被清空或覆盖。
-
-### 4.6 近期展示商品池是加购安全边界
-
-加购只允许针对当前 `conversation_id` 下近期 SSE 推送过的商品，商品池最多保留 20 个，并按展示时间去重更新。这个限制把“模型认为用户想买什么”和“用户实际看到了什么”绑定起来，降低误加购、跨会话串货和模型幻觉商品 ID 的风险。
-
-影响：
-
-- `map_block_product_event()` 只负责推送临时商品卡片；`message_commit` 时才把已提交商品写入近期展示商品池。
-- `add_to_cart` 必须接收明确 `product_ids`；如果需要消解历史指代，可以调用 `list_recent_products`，但用户表达含糊时应先追问。
-- REST 加购和 Agent 加购共享同一个池与购物车状态，因此客户端操作和对话操作具备一致约束。
-
-### 4.7 购物车按会话隔离，但商品状态实时 hydrate
-
-购物车当前使用进程内存按 `conversation_id` 隔离，保存 `product_id`、数量和上次展示价格；每次读取快照时再从 MySQL hydrate 最新商品信息。这样实现简单，适合当前单进程演示和移动端联调，同时保持价格、库存、上下架状态的实时性。
-
-影响：
-
-- 服务重启会丢失会话历史、购物车和近期商品池；生产化需要替换为持久化存储。
-- 快照读取会自动移除已删除/下架商品，并在价格变化时写入 `messages` 提醒客户端。
-- 库存校验发生在加购和改数量时；读取快照仍会保留库存不足商品，并通过 `unavailable_reason` 提示。
-
-### 4.8 客户端持有 `conversation_id`
-
-服务端接受客户端传入的 `conversation_id` 并按需创建会话，但 SSE 流不负责回传 ID，也没有单独的会话创建 API。移动端本地生成并持久化 ID，聊天、购物车 REST 和近期商品池都复用这一标识。
-
-影响：
-
-- 客户端取消 SSE 后仍可用同一个 ID 继续请求购物车或发起下一轮对话。
-- 服务端无需维护会话生命周期 API，降低接口面；代价是客户端必须保证 ID 稳定传递。
-- 若客户端省略 ID，服务端可生成临时 ID，但客户端无法从 SSE 得知它，实际多轮体验会退化。
-
-### 4.9 可恢复错误只覆盖模型可修正的问题
-
-系统不会用宽泛 `try-except` 吞掉所有异常；只有工具 JSON 非法、推荐标记不合规、可见正文越界、工具参数可修正等问题会转为 `RecoverableAgentError` 并反馈给模型重试。数据库连接、缺少 API Key、向量库为空等环境或系统错误应快速失败。
-
-影响：
-
-- 同类错误最多重试 2 次，总恢复次数最多 6 次，防止模型陷入无限修正。
-- 恢复反馈作为 system message 注入当前轮，不污染长期会话历史。
-- 恢复耗尽后由 SSE 映射为稳定的用户可见错误消息，服务端日志保留真实异常上下文。
-
-### 4.10 客户端断开时取消 LLM，未提交内容不入历史
-
-聊天接口基于 SSE 推送，客户端断开后服务端会取消正在进行的 LLM 调用，不再发送 `done`。最终回复只有在解析成功并 `message_commit` 后写入会话历史；未提交的 provisional 输出不会进入历史。
-
-影响：
-
-- 取消请求可以减少无用 token 消耗和后台任务堆积。
-- 后续对话能知道上一轮回复只完成了一部分，避免把半截回答当成完整结论。
-- 客户端不能依赖断开场景下收到 `done`，需要以连接关闭作为取消完成信号。
-
-## 5. 模块依赖
-
-```text
-main.py
- ├── product_store ── ingest（文本构建）
- ├── chroma_sync ──── product_store, ingest, embedding
- └── api/
-      ├── chat ────── agent, conversation, sse.mapper
-      ├── products ── product_store, catalog
-      └── cart ────── cart_store, conversation
-
-agent/loop → tools → retriever → product_store, chroma, embedding
+    API-->>Client: product block
+    API-->>Mapper: MessageCommitEvent
+    Mapper->>Cart: record_recent_product(conversation_id, product)
+    Client->>API: POST /api/cart/items
+    API->>Cart: add_item(conversation_id, product_id, quantity)
+    Cart->>Cart: verify product was recently displayed
+    Cart->>MySQL: read latest product
+    Cart-->>API: CartSnapshot
+    API-->>Client: cart snapshot
 ```
 
-## 6. 扩展点
+## 数据模型与存储
 
-- **持久化会话/购物车**：替换 `conversation.py`、`cart_store.py` 内存 dict。
-- **多模态检索**：课题规划能力，当前未实现；可在工具层增加图像理解 → 视觉 query。
-- **离线评估**：`tools/retrieve_products.parse_intent()` 供 eval 脚本调用（`eval/` 未纳入版本库）。
+### 商品数据集
+
+每个商品 JSON 包含：
+
+- `product_id`、`title`、`brand`、`category`、`sub_category`
+- `base_price`、`stock`、`skus`
+- `rag_knowledge.marketing_description`
+- `rag_knowledge.official_faq`
+- `rag_knowledge.user_reviews`
+
+图片位于同类目的 `images/` 目录，后端通过 `/assets/{category}/images/{product_id}_live.jpg`
+暴露。
+
+### MySQL
+
+`products` 表保存：
+
+- 商品稳定字段：ID、标题、品牌、类目、子类目、图片。
+- 易变字段：价格、库存、上下架。
+- 文本字段：`description`、`embedding_text`、`raw_payload`。
+- 时间字段：`created_at`、`updated_at`。
+
+`sync_state` 表保存 Chroma 增量同步水位。
+
+### ChromaDB
+
+collection 名称由 `CHROMA_COLLECTION_NAME` 配置，默认 `products`。
+
+每条记录：
+
+- `id`：`product_id`
+- `embedding`：`embedding_text` 的 SentenceTransformer embedding
+- `document`：完整商品说明，供 LLM 阅读
+- `metadata`：商品 ID、标题、品牌、类目、子类目、图片 URL
+
+## 错误与恢复
+
+Agent 把以下错误视为可恢复，并反馈给 LLM 修正：
+
+- 工具参数不是合法 JSON。
+- 工具执行失败。
+- LLM 输出未知候选商品 ID。
+- 推荐或对比隐藏标记格式不合法。
+- 可见回复过长或包含禁止的 Markdown 结构。
+- LLM 调用超时或响应为空。
+
+当同类错误超过 `MAX_RECOVERY_RETRIES` 或总恢复次数超过
+`MAX_TOTAL_RECOVERY_ATTEMPTS` 时，本轮抛出 `AgentRecoveryExhausted`，
+SSE 返回通用错误事件。
+
+## 当前限制
+
+- 会话历史、购物车、近期展示商品池都是进程内内存状态，不适合多实例共享。
+- `conversation_id` 由客户端生成或请求传入，服务端 SSE 不回传新的会话 ID。
+- 启动时会扫描完整数据集并 upsert MySQL，数据量增大后需要拆分为独立导入流程。
+- ChromaDB 使用本地持久化目录 `server/chroma_db`，没有远程向量库部署配置。
+- Android API 基址是构建期常量，需要联调前手动修改。
