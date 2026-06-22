@@ -26,7 +26,7 @@ def parse_final_response(
     candidate_groups: list[dict] | None = None,
 ) -> ParsedFinalResponse:
     validate_marker_syntax(text)
-    recommend_matches = list(re.finditer(r"<R\b[^>]*>.*?</R>\s*", text, flags=re.DOTALL))
+    recommend_matches = list(re.finditer(r"<R>", text))
     compare_matches = list(re.finditer(r"<C>(.*?)</C>\n?", text, flags=re.DOTALL))
 
     if len(recommend_matches) > 1:
@@ -52,16 +52,8 @@ def parse_final_response(
     if recommend_matches:
         recommend_match = recommend_matches[0]
         ensure_marker_is_first_line(text, recommend_match, "<R>")
-        outside_text = text[: recommend_match.start()] + text[recommend_match.end() :]
-        if outside_text.strip():
-            raise RecoverableAgentError(
-                "recommend_marker_visible_text_outside",
-                "推荐场景中 <R>...</R> 外不允许有非空正文。",
-                raw_output=text,
-                details={"outside_text": outside_text.strip()},
-            )
         recommendation = parse_recommendation_marker(
-            recommend_match.group(0).strip(),
+            text[recommend_match.start() :].strip(),
             raw_output=text,
             candidate_ids=candidate_ids,
             candidate_groups=candidate_groups or [],

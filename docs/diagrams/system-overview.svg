@@ -1,0 +1,155 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="820" viewBox="0 0 1280 820" role="img" aria-labelledby="title desc">
+  <title id="title">EcommerceAgent 系统总览</title>
+  <desc id="desc">客户端、FastAPI 后端、数据层和外部服务之间的整体架构关系。</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#111827"/>
+    </marker>
+    <linearGradient id="client-bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#f3fff6"/>
+      <stop offset="1" stop-color="#e8f8ec"/>
+    </linearGradient>
+    <linearGradient id="backend-bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#f8fbff"/>
+      <stop offset="1" stop-color="#eef6ff"/>
+    </linearGradient>
+    <linearGradient id="data-bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#fbf7ff"/>
+      <stop offset="1" stop-color="#f1e9ff"/>
+    </linearGradient>
+    <linearGradient id="external-bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#fffdf2"/>
+      <stop offset="1" stop-color="#fff7d8"/>
+    </linearGradient>
+    <filter id="soft-shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="1.5" stdDeviation="2" flood-color="#334155" flood-opacity="0.12"/>
+    </filter>
+    <style>
+      .page { fill: #ffffff; }
+      .zone-client { fill: url(#client-bg); stroke: #2f8f49; stroke-width: 1.4; stroke-dasharray: 8 4; rx: 10; }
+      .zone-backend { fill: url(#backend-bg); stroke: #2b6cb0; stroke-width: 1.4; stroke-dasharray: 8 4; rx: 10; }
+      .zone-data { fill: url(#data-bg); stroke: #8b5cc2; stroke-width: 1.4; stroke-dasharray: 8 4; rx: 10; }
+      .zone-external { fill: url(#external-bg); stroke: #d19a00; stroke-width: 1.4; stroke-dasharray: 8 4; rx: 10; }
+      .node { fill: #eef5ff; stroke: #1f5f9e; stroke-width: 1.4; rx: 8; filter: url(#soft-shadow); }
+      .client-node { fill: #eefbed; stroke: #207a3a; stroke-width: 1.5; rx: 8; filter: url(#soft-shadow); }
+      .data-node { fill: #f0e6ff; stroke: #7346a8; stroke-width: 1.5; rx: 8; filter: url(#soft-shadow); }
+      .external-node { fill: #fff8dc; stroke: #c48700; stroke-width: 1.5; rx: 8; filter: url(#soft-shadow); }
+      .section-title { font: 700 22px Arial, "Noto Sans CJK SC", sans-serif; }
+      .backend-title { fill: #0b4f9c; }
+      .client-title { fill: #0d7a35; }
+      .data-title { fill: #6f3faf; }
+      .external-title { fill: #a36d00; }
+      .node-text { fill: #111827; font: 500 14px Arial, "Noto Sans CJK SC", sans-serif; text-anchor: middle; }
+      .node-text-strong { fill: #111827; font: 600 14px Arial, "Noto Sans CJK SC", sans-serif; text-anchor: middle; }
+      .label { fill: #111827; font: 12px Arial, "Noto Sans CJK SC", sans-serif; }
+      .edge { fill: none; stroke: #111827; stroke-width: 1.55; marker-end: url(#arrow); }
+      .edge-thin { fill: none; stroke: #111827; stroke-width: 1.3; marker-end: url(#arrow); }
+      .cylinder { fill: #f0e6ff; stroke: #5f3b93; stroke-width: 1.5; filter: url(#soft-shadow); }
+      .cylinder-line { fill: none; stroke: #5f3b93; stroke-width: 1.5; }
+    </style>
+  </defs>
+
+  <rect class="page" width="1280" height="820"/>
+
+  <rect class="zone-client" x="8" y="18" width="172" height="625"/>
+  <rect class="zone-backend" x="280" y="18" width="700" height="625"/>
+  <rect class="zone-data" x="1040" y="18" width="230" height="792"/>
+  <rect class="zone-external" x="280" y="690" width="610" height="120"/>
+
+  <text class="section-title client-title" x="94" y="54" text-anchor="middle">客户端</text>
+  <text class="section-title backend-title" x="630" y="54" text-anchor="middle">FastAPI 后端</text>
+  <text class="section-title data-title" x="1155" y="54" text-anchor="middle">数据层</text>
+  <text class="section-title external-title" x="585" y="728" text-anchor="middle">外部服务</text>
+
+  <rect class="client-node" x="28" y="230" width="132" height="94"/>
+  <text class="node-text" x="94" y="270">Android App</text>
+  <text class="node-text" x="94" y="292">(Kotlin / Compose)</text>
+
+  <rect class="node" x="310" y="140" width="112" height="76"/>
+  <text class="node-text-strong" x="366" y="174">api/</text>
+  <text class="node-text" x="366" y="196">HTTP + SSE</text>
+
+  <rect class="node" x="480" y="140" width="120" height="76"/>
+  <text class="node-text-strong" x="540" y="174">agent/</text>
+  <text class="node-text" x="540" y="196">图运行时</text>
+
+  <rect class="node" x="665" y="140" width="122" height="76"/>
+  <text class="node-text-strong" x="726" y="174">tools/</text>
+  <text class="node-text" x="726" y="196">检索 / 购物车</text>
+
+  <rect class="data-node" x="850" y="228" width="104" height="56"/>
+  <text class="node-text" x="902" y="261">retriever.py</text>
+
+  <rect class="node" x="400" y="306" width="114" height="72"/>
+  <text class="node-text" x="457" y="338">conversation</text>
+  <text class="node-text" x="457" y="358">会话历史</text>
+
+  <rect class="node" x="575" y="306" width="108" height="72"/>
+  <text class="node-text" x="629" y="338">sse/mapper</text>
+  <text class="node-text" x="629" y="358">事件映射</text>
+
+  <rect class="node" x="680" y="390" width="145" height="70"/>
+  <text class="node-text" x="752" y="420">cart_store</text>
+  <text class="node-text" x="752" y="442">购物车 / 近期商品池</text>
+
+  <rect class="node" x="380" y="520" width="132" height="60"/>
+  <text class="node-text" x="446" y="555">product_store.py</text>
+
+  <rect class="external-node" x="300" y="730" width="160" height="70"/>
+  <text class="node-text" x="380" y="770">火山方舟 LLM</text>
+
+  <rect class="external-node" x="665" y="730" width="205" height="70"/>
+  <text class="node-text" x="768" y="762">Sentence Transformers</text>
+  <text class="node-text" x="768" y="784">Embedding</text>
+
+  <path class="cylinder" d="M1100 140 C1100 116 1228 116 1228 140 L1228 220 C1228 244 1100 244 1100 220 Z"/>
+  <ellipse class="cylinder-line" cx="1164" cy="140" rx="64" ry="20"/>
+  <path class="cylinder-line" d="M1100 140 L1100 220"/>
+  <path class="cylinder-line" d="M1228 140 L1228 220"/>
+  <text class="node-text" x="1164" y="188">MySQL</text>
+  <text class="node-text" x="1164" y="210">商品权威源</text>
+
+  <path class="cylinder" d="M1100 338 C1100 314 1228 314 1228 338 L1228 418 C1228 442 1100 442 1100 418 Z"/>
+  <ellipse class="cylinder-line" cx="1164" cy="338" rx="64" ry="20"/>
+  <path class="cylinder-line" d="M1100 338 L1100 418"/>
+  <path class="cylinder-line" d="M1228 338 L1228 418"/>
+  <text class="node-text" x="1164" y="390">ChromaDB</text>
+  <text class="node-text" x="1164" y="412">语义索引</text>
+
+  <rect class="data-node" x="1056" y="600" width="190" height="78"/>
+  <text class="node-text" x="1151" y="636">ecommerce_agent_dataset/</text>
+  <text class="node-text" x="1151" y="658">JSON + 图片</text>
+
+  <path class="edge" d="M160 166 L310 166"/>
+  <text class="label" x="188" y="145">POST /api/chat SSE</text>
+  <path class="edge" d="M160 276 C220 276 220 196 310 196"/>
+  <text class="label" x="205" y="240">REST</text>
+
+  <path class="edge" d="M422 178 L480 178"/>
+  <path class="edge" d="M600 178 L665 178"/>
+  <path class="edge-thin" d="M665 178 L600 178"/>
+  <path class="edge" d="M787 178 L812 178 L812 228 L850 256"/>
+  <text class="label" x="826" y="202">retrieve_products</text>
+
+  <path class="edge" d="M540 216 L540 282 L457 282 L457 306"/>
+  <path class="edge" d="M540 216 L540 282 L629 282 L629 306"/>
+  <path class="edge" d="M457 378 L457 422 L575 422 L575 342"/>
+  <path class="edge" d="M629 378 L629 422 L680 422"/>
+  <path class="edge" d="M726 216 L726 390"/>
+
+  <path class="edge" d="M366 216 L366 730"/>
+  <path class="edge" d="M366 216 L366 475 L446 475 L446 520"/>
+  <path class="edge" d="M446 580 L446 616 L748 616 L748 730"/>
+  <text class="label" x="758" y="632">启动 upsert / ingest --dataset-dir</text>
+
+  <path class="edge" d="M954 256 C1010 256 1008 185 1100 185"/>
+  <path class="edge" d="M954 256 C1010 256 1008 373 1100 373"/>
+  <path class="edge" d="M1100 243 C1020 243 1010 256 954 256"/>
+  <path class="edge" d="M1100 441 C1018 441 1010 274 954 274"/>
+
+  <path class="edge" d="M512 550 L1151 550 L1151 600"/>
+  <path class="edge" d="M748 460 L748 490 L1164 490 L1164 441"/>
+  <text class="label" x="916" y="510">chroma_sync 增量</text>
+  <path class="edge" d="M1151 678 L1151 314"/>
+  <path class="edge" d="M1151 678 L1151 730 L768 730"/>
+</svg>

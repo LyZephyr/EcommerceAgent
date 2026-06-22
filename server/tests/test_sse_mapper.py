@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agent.events import (
     BlockCompareEvent,
@@ -11,8 +15,10 @@ from agent.events import (
     MessageCommitEvent,
     MessageResetEvent,
     MessageStartEvent,
+    RecentProductEntry,
     StructuredStatusEvent,
 )
+from api.chat import record_recent_products
 from sse.mapper import (
     GENERIC_ERROR_MESSAGE,
     RECOVERY_EXHAUSTED_MESSAGE,
@@ -50,14 +56,7 @@ def test_map_block_text_delta_event() -> None:
     assert payload["content"] == "推"
 
 
-def test_map_block_product_event_does_not_record_recent_product(monkeypatch) -> None:
-    recorded: list[tuple[str, dict]] = []
-
-    def fake_record(conversation_id: str, product: dict) -> None:
-        recorded.append((conversation_id, product))
-
-    monkeypatch.setattr("sse.mapper.cart_store.record_recent_product", fake_record)
-
+def test_map_block_product_event_does_not_record_recent_product() -> None:
     product_data = {
         "product_id": "p1",
         "title": "测试牛奶",
@@ -85,16 +84,15 @@ def test_map_block_product_event_does_not_record_recent_product(monkeypatch) -> 
     assert payload["group"] == "早餐"
     assert payload["product"]["product_id"] == "p1"
     assert payload["product"]["detail_url"] == "/api/products/p1"
-    assert recorded == []
 
 
-def test_map_message_lifecycle_events_record_recent_products_on_commit(monkeypatch) -> None:
+def test_map_message_lifecycle_events_do_not_record_recent_products(monkeypatch) -> None:
     recorded: list[tuple[str, dict]] = []
 
     def fake_record(conversation_id: str, product: dict) -> None:
         recorded.append((conversation_id, product))
 
-    monkeypatch.setattr("sse.mapper.cart_store.record_recent_product", fake_record)
+    monkeypatch.setattr("api.chat.cart_store.record_recent_product", fake_record)
 
     product_data = {
         "product_id": "p1",
@@ -120,7 +118,9 @@ def test_map_message_lifecycle_events_record_recent_products_on_commit(monkeypat
         MessageCommitEvent(
             message_id="m1",
             attempt_id="attempt-2",
-            recent_products=[{"product_data": product_data, "group": "早餐"}],
+            recent_products=[
+                RecentProductEntry(product_data=product_data, group="早餐")
+            ],
         ),
         conversation_id="conv-1",
     )
@@ -130,6 +130,39 @@ def test_map_message_lifecycle_events_record_recent_products_on_commit(monkeypat
     assert reset["event"] == "message_reset"
     assert json.loads(reset["data"])["reason"] == "retry"
     assert commit["event"] == "message_commit"
+    assert recorded == []
+
+
+def test_chat_layer_records_recent_products_on_commit(monkeypatch) -> None:
+    recorded: list[tuple[str, dict]] = []
+
+    def fake_record(conversation_id: str, product: dict) -> None:
+        recorded.append((conversation_id, product))
+
+    monkeypatch.setattr("api.chat.cart_store.record_recent_product", fake_record)
+    product_data = {
+        "product_id": "p1",
+        "title": "测试牛奶",
+        "brand": "测试品牌",
+        "category": "食品饮料",
+        "sub_category": "牛奶",
+        "price": 12.0,
+        "image_url": "/assets/p1.jpg",
+        "stock": 2,
+        "is_active": True,
+    }
+
+    record_recent_products(
+        "conv-1",
+        MessageCommitEvent(
+            message_id="m1",
+            attempt_id="attempt-2",
+            recent_products=[
+                RecentProductEntry(product_data=product_data, group="早餐")
+            ],
+        ),
+    )
+
     assert recorded[0][0] == "conv-1"
     assert recorded[0][1]["product_id"] == "p1"
     assert recorded[0][1]["group_label"] == "早餐"

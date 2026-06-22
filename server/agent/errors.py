@@ -63,12 +63,12 @@ class RecoverableAgentError(RuntimeError):
             f"{json.dumps(payload, ensure_ascii=False, indent=2)}\n"
             "要求：\n"
             "- 如果是工具调用错误，请重新生成合法的工具名和 JSON 参数。\n"
-            "- 如果你决定推荐候选商品，请严格使用 <R><INTRO>...</INTRO>"
-            '<ITEM id="商品ID"><REASON>...</REASON></ITEM></R>；'
+            "- 如果你决定推荐候选商品，请严格使用 "
+            '<R><INTRO>短建议<ITEM id="商品ID">短理由<OUTRO>可选短总结；'
             "如果候选为空或不符合需求，不要输出 <R>。\n"
             "- 如果是对比标记错误，请严格使用 "
             '<C>{"products":[...],"rows":[...]}</C>，且二者不能同时出现。\n'
-            "- 推荐场景 <R> 外不要写任何非空正文；非推荐场景不要输出 <R>。\n"
+            "- 推荐场景 <R> 前不要写任何非空正文，推荐块不要写任何闭合标签；非推荐场景不要输出 <R>。\n"
             "- 不要解释修正过程。"
         )
 

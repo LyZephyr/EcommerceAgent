@@ -11,24 +11,7 @@ EcommerceAgent 由四部分组成：
 - 数据集：`ecommerce_agent_dataset/`，按类目组织的商品 JSON 和图片。
 - 评估工具：`eval/`，用于离线评估商品召回效果。
 
-```mermaid
-flowchart TD
-    Android[Android Compose Client] -->|POST /api/chat SSE| FastAPI[FastAPI API]
-    Android -->|REST cart/products| FastAPI
-    FastAPI --> Agent[Agent ReAct Loop]
-    Agent -->|tool call| RetrieveTool[retrieve_products]
-    Agent -->|tool call| CartTool[cart tools]
-    RetrieveTool --> Retriever[retriever.py]
-    Retriever --> Chroma[(ChromaDB)]
-    Retriever --> MySQL[(MySQL products)]
-    CartTool --> CartStore[In-memory cart_store]
-    CartStore --> MySQL
-    Dataset[JSON + images dataset] --> ProductStore[product_store.py]
-    ProductStore --> MySQL
-    MySQL --> ChromaSync[chroma_sync.py]
-    ChromaSync --> Chroma
-    FastAPI -->|/assets| Dataset
-```
+![EcommerceAgent 系统总览](docs/diagrams/system-overview.svg)
 
 ## 运行时边界
 
@@ -86,24 +69,28 @@ HTTP 层保持薄封装：
 
 ### `server/agent/`
 
-Agent 层实现 ReAct 工具循环、最终回复流式解析和可恢复错误处理。
+Agent 层把图装配、模型运行、工具运行和内部协议分开，负责工具调用、最终回复流式解析和可恢复错误处理。
 
-- `loop.py`：`run_turn()` 主循环。
-- `llm.py`：Chat Completions 调用、超时控制、最终回复流。
+- `graph.py`：`run_turn()` 入口、状态初始化和图/路由装配；运行时通过显式 step driver 消费事件，避免依赖框架 recursion limit 终止。
+- `runtime.py`：模型 step、完整 LLM stream 超时、turn budget、force-final 终止策略。
+- `tool_runtime.py`：tool call chunk 后的参数解析、工具执行和工具结果整理。
+- `contracts.py`：Agent 内部 typed contracts，如 `CandidateGroup`、`CandidateProduct`、`ToolCall`、`RecentProductEntry`、`AgentState`、`TurnBudget`。
 - `prompts.py`：工具调用规则、移动端短回复规则、隐藏结构化标记格式。
 - `events.py`：内部事件和解析结果 dataclass。
 - `streaming.py`：流式解析 `<R>` 推荐标记，及时发出商品块和文本增量。
 - `emitters.py`：把解析结果转换成 block 事件，并写入对话历史。
 - `parsing/`：校验 `<R>` 推荐、`<C>` 对比、移动端可见文本约束。
 - `errors.py`：`RecoverableAgentError`、`AgentRecoveryExhausted`、`RecoveryState`。
-- `tools_helpers.py`：工具调用解析、工具错误反馈、工具类型判断。
 - `candidates.py`：候选商品分组格式化与 group 校验辅助。
 
 关键策略：
 
-- 单轮最多执行 `MAX_TOOL_STEPS = 5` 个 ReAct 工具步骤。
+- 单轮最多执行 `MAX_TOOL_STEPS = 5` 个工具步骤。
+- `TurnBudget` 同时限制模型 step、工具 step 和状态迁移次数；预算耗尽会抛 `AgentRecoveryExhausted`。
+- force-final 只允许尝试一次；如果模型在 force-final 后仍产生工具调用，本轮直接终止。
 - LLM 单次调用超时为 `LLM_TIMEOUT_SECONDS = 60`。
 - 同类可恢复错误最多重试 2 次，总恢复次数最多 6 次。
+- 首轮模型调用使用 streaming tool-calling：先出现正文则立即以 provisional attempt 输出；若随后出现工具调用，发 `message_reset` 后执行工具。
 - 最终可见回复限制为移动端短文本，禁止 Markdown 表格、标题等重格式。
 - 推荐商品必须使用 `<R>` 标记引用本轮工具候选商品 ID。
 - 基于历史商品做对比时使用 `<C>{...}</C>` 结构化对比标记。
@@ -157,8 +144,9 @@ RAG 检索链路：
 
 重要细节：
 
+- `sse.mapper` 只做协议映射，不写业务状态。
 - `BlockProductEvent` 只映射商品块，不记录近期商品。
-- `MessageCommitEvent` 才把成功提交的商品卡记录到近期展示池。
+- `api.chat.iter_chat_sse_events()` 在处理 `MessageCommitEvent.recent_products` 时记录近期展示池。
 - 这样可以避免失败重试过程中的临时商品卡被错误允许加购。
 
 ### `server/catalog/product_presenter.py`
@@ -174,17 +162,7 @@ RAG 检索链路：
 
 位置：`client-android/`
 
-```mermaid
-flowchart TD
-    MainActivity --> ChatRoute
-    ChatRoute --> ChatViewModel
-    ChatViewModel --> ChatService
-    ChatService --> ChatApiService
-    ChatApiService -->|SSE /api/chat| Backend
-    ChatApiService -->|REST cart/products| Backend
-    ChatViewModel --> ChatUiState
-    ChatUiState --> ChatScreen
-```
+![Android 客户端架构](docs/diagrams/client-architecture.svg)
 
 ### 网络层
 
@@ -217,71 +195,15 @@ flowchart TD
 
 ### 启动与索引同步
 
-```mermaid
-sequenceDiagram
-    participant App as FastAPI lifespan
-    participant Dataset as JSON dataset
-    participant MySQL as MySQL
-    participant Sync as chroma_sync
-    participant Chroma as ChromaDB
-
-    App->>Dataset: scan */data/*.json
-    App->>MySQL: initialize database + upsert products
-    App->>Sync: start periodic task
-    Sync->>MySQL: read products updated after sync_state
-    Sync->>Chroma: upsert active products / delete inactive products
-    Sync->>MySQL: update sync_state
-```
+![启动与索引同步时序图](docs/diagrams/startup-sync-sequence.svg)
 
 ### 聊天推荐
 
-```mermaid
-sequenceDiagram
-    participant Client as Android Client
-    participant API as /api/chat
-    participant Agent as run_turn
-    participant LLM as Ark Chat Completions
-    participant Tool as retrieve_products
-    participant Retriever as retriever.py
-    participant MySQL as MySQL
-    participant Chroma as ChromaDB
-
-    Client->>API: POST message + conversation_id
-    API->>Agent: run_turn()
-    Agent->>LLM: system prompt + history + tools
-    LLM->>Agent: tool call retrieve_products
-    Agent-->>Client: status retrieving
-    Agent->>Tool: execute(arguments)
-    Tool->>Retriever: retrieve(query, top_k, intent)
-    Retriever->>Chroma: query semantic candidates
-    Retriever->>MySQL: hydrate latest product snapshots
-    Retriever-->>Tool: grouped products
-    Tool-->>Agent: candidate groups
-    Agent->>LLM: final streaming response
-    Agent-->>Client: message_start/status/block events
-    Agent-->>Client: message_commit/done
-```
+![聊天推荐时序图](docs/diagrams/chat-recommendation-sequence.svg)
 
 ### 推荐商品加购
 
-```mermaid
-sequenceDiagram
-    participant Client as Android Client
-    participant API as FastAPI
-    participant Mapper as sse.mapper
-    participant Cart as cart_store
-    participant MySQL as MySQL
-
-    API-->>Client: product block
-    API-->>Mapper: MessageCommitEvent
-    Mapper->>Cart: record_recent_product(conversation_id, product)
-    Client->>API: POST /api/cart/items
-    API->>Cart: add_item(conversation_id, product_id, quantity)
-    Cart->>Cart: verify product was recently displayed
-    Cart->>MySQL: read latest product
-    Cart-->>API: CartSnapshot
-    API-->>Client: cart snapshot
-```
+![推荐商品加购时序图](docs/diagrams/cart-add-sequence.svg)
 
 ## 数据模型与存储
 

@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="520" viewBox="0 0 1040 520" role="img" aria-labelledby="title desc">
+  <title id="title">Startup and Index Sync Sequence</title>
+  <desc id="desc">FastAPI lifespan loads the dataset into MySQL and starts periodic ChromaDB synchronization.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#334155"/>
+    </marker>
+    <style>
+      .bg { fill: #f8fafc; }
+      .head { fill: #ffffff; stroke: #334155; stroke-width: 1.5; rx: 8; }
+      .store { fill: #fff7ed; stroke: #c2410c; stroke-width: 1.5; rx: 8; }
+      .task { fill: #eef2ff; stroke: #4f46e5; stroke-width: 1.5; rx: 8; }
+      .title { fill: #0f172a; font: 700 20px Arial, sans-serif; }
+      .text { fill: #0f172a; font: 600 14px Arial, sans-serif; }
+      .small { fill: #334155; font: 12px Arial, sans-serif; }
+      .life { stroke: #94a3b8; stroke-width: 1.4; stroke-dasharray: 6 5; }
+      .edge { fill: none; stroke: #334155; stroke-width: 1.7; marker-end: url(#arrow); }
+    </style>
+  </defs>
+  <rect class="bg" width="1040" height="520"/>
+  <text class="title" x="40" y="45">Startup and Index Sync</text>
+
+  <rect class="head" x="45" y="80" width="150" height="54"/>
+  <text class="text" x="76" y="112">FastAPI lifespan</text>
+  <rect class="head" x="245" y="80" width="150" height="54"/>
+  <text class="text" x="280" y="112">JSON dataset</text>
+  <rect class="store" x="445" y="80" width="150" height="54"/>
+  <text class="text" x="495" y="112">MySQL</text>
+  <rect class="task" x="645" y="80" width="150" height="54"/>
+  <text class="text" x="680" y="112">chroma_sync</text>
+  <rect class="store" x="845" y="80" width="150" height="54"/>
+  <text class="text" x="892" y="112">ChromaDB</text>
+
+  <line class="life" x1="120" y1="134" x2="120" y2="480"/>
+  <line class="life" x1="320" y1="134" x2="320" y2="480"/>
+  <line class="life" x1="520" y1="134" x2="520" y2="480"/>
+  <line class="life" x1="720" y1="134" x2="720" y2="480"/>
+  <line class="life" x1="920" y1="134" x2="920" y2="480"/>
+
+  <path class="edge" d="M120 185 L320 185"/>
+  <text class="small" x="159" y="174">scan */data/*.json</text>
+  <path class="edge" d="M120 250 L520 250"/>
+  <text class="small" x="225" y="239">initialize database + upsert products</text>
+  <path class="edge" d="M120 315 L720 315"/>
+  <text class="small" x="355" y="304">start periodic task</text>
+  <path class="edge" d="M720 370 L520 370"/>
+  <text class="small" x="548" y="359">read products updated after sync_state</text>
+  <path class="edge" d="M720 425 L920 425"/>
+  <text class="small" x="757" y="414">upsert active / delete inactive</text>
+  <path class="edge" d="M720 470 L520 470"/>
+  <text class="small" x="569" y="459">update sync_state</text>
+</svg>

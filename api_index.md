@@ -208,7 +208,11 @@ Android 初始本地状态还使用 `preparing`。
 }
 ```
 
-`reason` 可能是 `retry` 或 `error`。
+`reason` 可能是：
+
+- `retry`：模型输出校验失败，清空当前 attempt 后重试。
+- `error`：恢复次数耗尽，清空当前 attempt 后返回错误。
+- `tool_call_after_text`：模型先输出了 provisional 正文、随后又生成工具调用；服务端清空 provisional 正文并改走工具流程。
 
 ### `message_commit`
 
@@ -221,7 +225,8 @@ assistant 消息成功提交。
 }
 ```
 
-服务端在处理该事件时会把本次成功推荐的商品记录到当前会话近期展示商品池。
+`MessageCommitEvent.recent_products` 使用 `RecentProductEntry` typed contract。
+`api.chat.iter_chat_sse_events()` 在处理该事件时会把本次成功推荐的商品记录到当前会话近期展示商品池；`sse.mapper` 只负责输出 `message_commit` SSE。
 
 ### `block`
 
@@ -566,15 +571,31 @@ payload 与 `CartSnapshot` 相同。
 
 | 模块 | 接口 | 说明 |
 | --- | --- | --- |
-| `agent.loop` | `run_turn(conversation_id, user_message)` | 执行一轮 Agent 对话并 yield 内部事件 |
-| `agent.llm` | `create_chat_completion(client, label, **kwargs)` | 带超时和日志的 LLM 调用 |
-| `agent.llm` | `stream_final_response_with_recovery(...)` | 带恢复重试的最终回复流 |
+| `agent.graph` | `run_turn(conversation_id, user_message)` | 执行一轮 Agent 对话并 yield 内部事件 |
+| `agent.graph` | `build_initial_state(conversation_id, user_message)` | 构造单轮 Agent 初始状态 |
+| `agent.runtime` | `model_step(state)` | 执行一次模型流式输出或工具调用判定 |
+| `agent.runtime` | `tool_step(state)` | 执行当前 pending tool calls |
+| `agent.tool_runtime` | `execute_tool_calls(state, emit=...)` | 解析和执行工具调用，整理候选商品和购物车事件 |
+| `agent.tool_runtime` | `parse_tool_arguments(tool_call)` | 校验并解析工具 JSON 参数 |
 | `agent.streaming` | `StreamingFinalEmitter` | 流式解析最终回复并发出 block 事件 |
 | `agent.parsing.final` | `parse_final_response(text, candidate_ids, candidate_groups=None)` | 解析普通文本、推荐和对比标记 |
 | `agent.emitters` | `events_from_parsed_response(...)` | 解析结果转 block 事件 |
-| `sse.mapper` | `map_agent_event(event, conversation_id)` | 内部事件转 SSE dict |
+| `sse.mapper` | `map_agent_event(event, conversation_id)` | 内部事件转 SSE dict，不写业务状态 |
 | `sse.mapper` | `map_done_event()` | 构造 done SSE |
 | `sse.mapper` | `map_error_event(message)` | 构造 error SSE |
+
+### Agent typed contracts
+
+定义位置：`server/agent/contracts.py`
+
+| 类 | 说明 |
+| --- | --- |
+| `CandidateProduct` | Agent 内部候选商品封装 |
+| `CandidateGroup` | retrieve_products 返回的候选分组 |
+| `ToolCall` | 模型工具调用的内部表示 |
+| `RecentProductEntry` | 成功 commit 后可记录到近期展示池的商品 |
+| `TurnBudget` | 单轮模型 step、工具 step、迁移次数和 force-final 状态预算 |
+| `AgentState` | Agent 图/运行时共享状态 |
 
 ### Agent 事件 dataclass
 
@@ -590,7 +611,7 @@ payload 与 `CartSnapshot` 相同。
 | `BlockCompareEvent` | 对比表块 |
 | `MessageStartEvent` | assistant 消息开始 |
 | `MessageResetEvent` | attempt 重置 |
-| `MessageCommitEvent` | assistant 消息提交 |
+| `MessageCommitEvent` | assistant 消息提交，包含 `list[RecentProductEntry]` |
 | `RecommendationItem` | 推荐条目解析结果 |
 | `ParsedRecommendation` | 推荐块解析结果 |
 | `ParsedFinalResponse` | 最终回复解析结果 |

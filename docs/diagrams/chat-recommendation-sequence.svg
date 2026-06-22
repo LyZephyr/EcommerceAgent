@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1320" height="700" viewBox="0 0 1320 700" role="img" aria-labelledby="title desc">
+  <title id="title">Chat Recommendation Sequence</title>
+  <desc id="desc">Android posts a chat message, the agent calls retrieve_products, the retriever queries ChromaDB and MySQL, and events stream back to the client.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#334155"/>
+    </marker>
+    <style>
+      .bg { fill: #f8fafc; }
+      .head { fill: #ffffff; stroke: #334155; stroke-width: 1.5; rx: 8; }
+      .agent { fill: #eef2ff; stroke: #4f46e5; stroke-width: 1.5; rx: 8; }
+      .store { fill: #fff7ed; stroke: #c2410c; stroke-width: 1.5; rx: 8; }
+      .title { fill: #0f172a; font: 700 20px Arial, sans-serif; }
+      .text { fill: #0f172a; font: 600 13px Arial, sans-serif; }
+      .small { fill: #334155; font: 12px Arial, sans-serif; }
+      .life { stroke: #94a3b8; stroke-width: 1.3; stroke-dasharray: 6 5; }
+      .edge { fill: none; stroke: #334155; stroke-width: 1.6; marker-end: url(#arrow); }
+      .return { fill: none; stroke: #64748b; stroke-width: 1.5; stroke-dasharray: 6 5; marker-end: url(#arrow); }
+    </style>
+  </defs>
+  <rect class="bg" width="1320" height="700"/>
+  <text class="title" x="40" y="45">Chat Recommendation Flow</text>
+
+  <rect class="head" x="30" y="80" width="130" height="54"/>
+  <text class="text" x="64" y="112">Client</text>
+  <rect class="head" x="190" y="80" width="130" height="54"/>
+  <text class="text" x="229" y="112">/api/chat</text>
+  <rect class="agent" x="350" y="80" width="130" height="54"/>
+  <text class="text" x="386" y="112">run_turn</text>
+  <rect class="head" x="510" y="80" width="130" height="54"/>
+  <text class="text" x="532" y="112">Ark Chat API</text>
+  <rect class="agent" x="670" y="80" width="130" height="54"/>
+  <text class="text" x="686" y="112">retrieve_products</text>
+  <rect class="head" x="830" y="80" width="130" height="54"/>
+  <text class="text" x="860" y="112">retriever.py</text>
+  <rect class="store" x="990" y="80" width="130" height="54"/>
+  <text class="text" x="1026" y="112">MySQL</text>
+  <rect class="store" x="1150" y="80" width="130" height="54"/>
+  <text class="text" x="1183" y="112">ChromaDB</text>
+
+  <line class="life" x1="95" y1="134" x2="95" y2="650"/>
+  <line class="life" x1="255" y1="134" x2="255" y2="650"/>
+  <line class="life" x1="415" y1="134" x2="415" y2="650"/>
+  <line class="life" x1="575" y1="134" x2="575" y2="650"/>
+  <line class="life" x1="735" y1="134" x2="735" y2="650"/>
+  <line class="life" x1="895" y1="134" x2="895" y2="650"/>
+  <line class="life" x1="1055" y1="134" x2="1055" y2="650"/>
+  <line class="life" x1="1215" y1="134" x2="1215" y2="650"/>
+
+  <path class="edge" d="M95 175 L255 175"/>
+  <text class="small" x="118" y="164">POST message + conversation_id</text>
+  <path class="edge" d="M255 225 L415 225"/>
+  <text class="small" x="298" y="214">run_turn()</text>
+  <path class="edge" d="M415 275 L575 275"/>
+  <text class="small" x="430" y="264">streaming prompt + history + tools</text>
+  <path class="return" d="M575 325 L415 325"/>
+  <text class="small" x="438" y="314">streamed retrieve_products call</text>
+  <path class="return" d="M415 375 L95 375"/>
+  <text class="small" x="174" y="364">status: retrieving</text>
+  <path class="edge" d="M415 425 L735 425"/>
+  <text class="small" x="523" y="414">execute(arguments)</text>
+  <path class="edge" d="M735 475 L895 475"/>
+  <text class="small" x="764" y="464">retrieve(query, top_k, intent)</text>
+  <path class="edge" d="M895 525 L1215 525"/>
+  <text class="small" x="985" y="514">query semantic candidates</text>
+  <path class="edge" d="M895 575 L1055 575"/>
+  <text class="small" x="921" y="564">hydrate latest snapshots</text>
+  <path class="return" d="M895 615 L735 615"/>
+  <text class="small" x="770" y="604">grouped products</text>
+  <path class="return" d="M735 645 L415 645"/>
+  <text class="small" x="525" y="634">candidate groups</text>
+  <path class="edge" d="M415 665 L575 665"/>
+  <text class="small" x="426" y="685">streaming response after tools</text>
+  <path class="return" d="M415 195 C335 210 180 585 95 600"/>
+  <text class="small" x="130" y="587">message_start / status / block / commit / done</text>
+</svg>

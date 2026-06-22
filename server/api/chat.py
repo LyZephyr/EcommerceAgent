@@ -7,10 +7,11 @@ import json
 import logging
 from collections.abc import AsyncIterator
 
+import cart_store
 from fastapi import APIRouter, Request
 from sse_starlette.sse import EventSourceResponse
 
-from agent import AgentRecoveryExhausted, run_turn
+from agent import AgentRecoveryExhausted, MessageCommitEvent, run_turn
 from conversation import get_or_create_id
 from schemas import ChatRequest
 from sse.mapper import (
@@ -19,6 +20,7 @@ from sse.mapper import (
     map_agent_event,
     map_done_event,
     map_error_event,
+    product_card_from_data,
 )
 
 logger = logging.getLogger(__name__)
@@ -41,6 +43,8 @@ async def iter_chat_sse_events(
                 logger.info("llm_call_cancelled conversation_id=%s", conversation_id)
                 await turn_events.aclose()
                 return
+            if isinstance(event, MessageCommitEvent):
+                record_recent_products(conversation_id, event)
             mapped = map_agent_event(event, conversation_id=conversation_id)
             if mapped is not None:
                 yield mapped
@@ -63,6 +67,18 @@ async def iter_chat_sse_events(
     finally:
         if not disconnected:
             yield map_done_event()
+
+
+def record_recent_products(
+    conversation_id: str,
+    event: MessageCommitEvent,
+) -> None:
+    for entry in event.recent_products:
+        card = product_card_from_data(entry.product_data, group=entry.group)
+        cart_store.record_recent_product(
+            conversation_id,
+            card.model_dump(exclude_none=True),
+        )
 
 
 @router.post("/api/chat")

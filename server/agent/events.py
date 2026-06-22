@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from agent.contracts import RecentProductEntry
+
 
 @dataclass
 class StructuredStatusEvent:
@@ -70,7 +72,7 @@ class MessageResetEvent:
 class MessageCommitEvent:
     message_id: str
     attempt_id: str
-    recent_products: list[dict]
+    recent_products: list[RecentProductEntry]
 
 
 @dataclass

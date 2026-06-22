@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from typing import Any
 
-import cart_store
 from agent.events import (
     BlockCompareEvent,
     BlockProductEvent,
@@ -76,18 +75,7 @@ def map_message_reset_event(event: MessageResetEvent) -> dict[str, str]:
 
 def map_message_commit_event(
     event: MessageCommitEvent,
-    *,
-    conversation_id: str,
 ) -> dict[str, str]:
-    for entry in event.recent_products:
-        card = product_card_from_data(
-            entry["product_data"],
-            group=entry.get("group"),
-        )
-        cart_store.record_recent_product(
-            conversation_id,
-            card.model_dump(exclude_none=True),
-        )
     return {
         "event": "message_commit",
         "data": dump_sse_data(
@@ -195,7 +183,7 @@ def map_agent_event(
     if isinstance(event, MessageResetEvent):
         return map_message_reset_event(event)
     if isinstance(event, MessageCommitEvent):
-        return map_message_commit_event(event, conversation_id=conversation_id)
+        return map_message_commit_event(event)
     if isinstance(event, CartEvent):
         return map_cart_event(event)
     if isinstance(event, BlockTextEvent):
