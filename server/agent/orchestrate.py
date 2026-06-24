@@ -1,4 +1,4 @@
-"""LangGraph assembly for the server Agent."""
+"""Agent turn orchestration."""
 
 from __future__ import annotations
 
@@ -7,10 +7,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 from uuid import uuid4
 
-from langgraph.graph import END, StateGraph
-
 import conversation
-from agent.constants import MAX_TOOL_STEPS
 from agent.contracts import AgentState, TurnBudget
 from agent.errors import RecoveryState
 from agent.events import (
@@ -85,10 +82,6 @@ def build_initial_state(conversation_id: str, user_message: str) -> AgentState:
     }
 
 
-def route_after_step(state: AgentState) -> str:
-    return state["route"]
-
-
 async def _run_step_with_events(step, state: AgentState):
     queue: asyncio.Queue[AgentEvent] = asyncio.Queue()
     task: asyncio.Task[dict[str, Any]] | None = None
@@ -120,22 +113,3 @@ async def _run_step_with_events(step, state: AgentState):
                 await asyncio.gather(task, return_exceptions=True)
 
 
-def build_graph():
-    graph = StateGraph(AgentState)
-    graph.add_node("model", model_step)
-    graph.add_node("tools", tool_step)
-    graph.set_entry_point("model")
-    graph.add_conditional_edges(
-        "model",
-        route_after_step,
-        {"tools": "tools", "model": "model", "done": END},
-    )
-    graph.add_conditional_edges(
-        "tools",
-        route_after_step,
-        {"model": "model", "done": END},
-    )
-    return graph.compile()
-
-
-_AGENT_GRAPH = build_graph()

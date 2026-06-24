@@ -69,9 +69,9 @@ HTTP 层保持薄封装：
 
 ### `server/agent/`
 
-Agent 层把图装配、模型运行、工具运行和内部协议分开，负责工具调用、最终回复流式解析和可恢复错误处理。
+Agent 层把 turn 编排、模型运行、工具运行和内部协议分开，负责工具调用、最终回复流式解析和可恢复错误处理。
 
-- `graph.py`：`run_turn()` 入口、状态初始化和图/路由装配；运行时通过显式 step driver 消费事件，避免依赖框架 recursion limit 终止。
+- `orchestrate.py`：`run_turn()` 入口、状态初始化和 model/tool step 循环编排；运行时通过显式 step driver 并发 drain 事件，避免依赖外部框架。
 - `runtime.py`：模型 step、完整 LLM stream 超时、turn budget、force-final 终止策略。
 - `tool_runtime.py`：tool call chunk 后的参数解析、工具执行和工具结果整理。
 - `contracts.py`：Agent 内部 typed contracts，如 `CandidateGroup`、`CandidateProduct`、`ToolCall`、`RecentProductEntry`、`AgentState`、`TurnBudget`。

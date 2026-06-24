@@ -571,8 +571,8 @@ payload 与 `CartSnapshot` 相同。
 
 | 模块 | 接口 | 说明 |
 | --- | --- | --- |
-| `agent.graph` | `run_turn(conversation_id, user_message)` | 执行一轮 Agent 对话并 yield 内部事件 |
-| `agent.graph` | `build_initial_state(conversation_id, user_message)` | 构造单轮 Agent 初始状态 |
+| `agent.orchestrate` | `run_turn(conversation_id, user_message)` | 执行一轮 Agent 对话并 yield 内部事件 |
+| `agent.orchestrate` | `build_initial_state(conversation_id, user_message)` | 构造单轮 Agent 初始状态 |
 | `agent.runtime` | `model_step(state)` | 执行一次模型流式输出或工具调用判定 |
 | `agent.runtime` | `tool_step(state)` | 执行当前 pending tool calls |
 | `agent.tool_runtime` | `execute_tool_calls(state, emit=...)` | 解析和执行工具调用，整理候选商品和购物车事件 |
@@ -595,7 +595,7 @@ payload 与 `CartSnapshot` 相同。
 | `ToolCall` | 模型工具调用的内部表示 |
 | `RecentProductEntry` | 成功 commit 后可记录到近期展示池的商品 |
 | `TurnBudget` | 单轮模型 step、工具 step、迁移次数和 force-final 状态预算 |
-| `AgentState` | Agent 图/运行时共享状态 |
+| `AgentState` | Agent 运行时共享状态 |
 
 ### Agent 事件 dataclass
 

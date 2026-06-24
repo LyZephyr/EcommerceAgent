@@ -374,9 +374,10 @@ def writer_emit(event) -> None:
     if emitter is not None:
         emitter(event)
         return
-    from langgraph.config import get_stream_writer
-
-    get_stream_writer()({"event": event})
+    logger.warning(
+        "writer_emit called without event emitter set, event dropped: %s",
+        type(event).__name__,
+    )
 
 
 @contextmanager

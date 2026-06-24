@@ -10,7 +10,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import agent.graph as agent_graph  # noqa: E402
+import agent.orchestrate as agent_graph  # noqa: E402
 import agent.runtime as agent_runtime  # noqa: E402
 import agent.tool_runtime as tool_runtime  # noqa: E402
 from agent import (  # noqa: E402

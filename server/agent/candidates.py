@@ -26,19 +26,6 @@ def _group_products(group: CandidateGroup | dict[str, Any]) -> list[dict[str, An
     return group.get("products", [])
 
 
-def flatten_candidate_groups(candidate_groups: list[CandidateGroup | dict]) -> list[dict]:
-    candidates = []
-    seen_ids = set()
-    for group in candidate_groups:
-        for product in _group_products(group):
-            product_id = product["product_id"]
-            if product_id in seen_ids:
-                continue
-            seen_ids.add(product_id)
-            candidates.append(product)
-    return candidates
-
-
 def candidate_group_product_ids(
     candidate_groups: list[CandidateGroup | dict],
 ) -> dict[str, set[str]]:
